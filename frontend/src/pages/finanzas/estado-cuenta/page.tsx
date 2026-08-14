@@ -1,17 +1,19 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import MainLayout from '@/components/feature/MainLayout';
 import Card from '@/components/base/Card';
 import Badge from '@/components/base/Badge';
 import Button from '@/components/base/Button';
 import DataTable, { Column } from '@/components/base/DataTable';
 import { useToast } from '@/components/base/Toast';
-import { estadoCuentaPorAlumno, PagoConcepto } from '@/mocks/finanzas';
-import { students } from '@/mocks/alumnos';
+import type { PagoConcepto } from '@/mocks/finanzas';
 import RegistrarPagoModal from '../components/RegistrarPagoModal';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import { getAccountStatement } from '@/api/financeApi';
+import * as studentsApi from '@/api/studentsApi';
+import { isGuid } from '@/api/helpers';
 import { SkeletonTable } from '@/components/base/Skeleton';
 
 export default function EstadoCuenta() {
@@ -19,21 +21,32 @@ export default function EstadoCuenta() {
   const alumnoId = params.id || '';
   const { showToast } = useToast();
 
+  const studentQ = useQuery({
+    queryKey: queryKeys.students.detail(alumnoId),
+    queryFn: async () => {
+      const res = await studentsApi.getStudent(alumnoId);
+      if (!res.data) throw new Error(res.message || 'Alumno no encontrado');
+      return res.data;
+    },
+    enabled: Boolean(alumnoId) && isGuid(alumnoId),
+  });
+
   const statementQ = useApiResource({
     queryKey: queryKeys.finance.accountStatement(alumnoId),
     queryFn: () => getAccountStatement(alumnoId),
-    enabled: Boolean(alumnoId),
+    enabled: Boolean(alumnoId) && isGuid(alumnoId),
     errorToast: 'Error al cargar estado de cuenta',
   });
 
-  const estadoCuenta = statementQ.data ?? estadoCuentaPorAlumno[alumnoId];
-  const alumno = students.find((s) => s.id === alumnoId);
+  const estadoCuenta = statementQ.data;
+  const alumno = studentQ.data ?? null;
 
   const [modalPago, setModalPago] = useState(false);
   const [conceptos, setConceptos] = useState<PagoConcepto[]>([]);
 
   useEffect(() => {
     if (estadoCuenta?.conceptos) setConceptos(estadoCuenta.conceptos);
+    else setConceptos([]);
   }, [estadoCuenta]);
 
   const handlePagoRegistrado = useCallback((pago: PagoConcepto) => {
@@ -46,7 +59,7 @@ export default function EstadoCuenta() {
   const conceptosPagados = conceptos.filter((c) => c.estado === 'pagado').length;
   const conceptosVencidos = conceptos.filter((c) => c.estado === 'vencido').length;
 
-  if (statementQ.isLoading) {
+  if (statementQ.isLoading || studentQ.isPending) {
     return (
       <MainLayout>
         <div className="max-w-[1200px] mx-auto">
@@ -56,7 +69,7 @@ export default function EstadoCuenta() {
     );
   }
 
-  if (!estadoCuenta || !alumno) {
+  if (!alumnoId || !isGuid(alumnoId) || !alumno) {
     return (
       <MainLayout>
         <div className="max-w-[1200px] mx-auto">

@@ -73,6 +73,27 @@ public sealed class GuardianDto
     public DateTime? UpdatedAt { get; set; }
     public string? Relationship { get; set; }
     public bool? IsPrimary { get; set; }
+    public int ChildrenCount { get; set; }
+}
+
+/// <summary>Alumno vinculado a un tutor (proyección para detalle de padres).</summary>
+public sealed class GuardianLinkedStudentDto
+{
+    public Guid Id { get; set; }
+    public Guid TenantId { get; set; }
+    public Guid BranchId { get; set; }
+    public string? EnrollmentNumber { get; set; }
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string? LevelName { get; set; }
+    public string? Grade { get; set; }
+    public string? GroupCode { get; set; }
+    public string Status { get; set; } = "active";
+    public string? PhotoUrl { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public string? BranchName { get; set; }
+    public string? Relationship { get; set; }
+    public bool IsPrimary { get; set; }
 }
 
 public sealed class GuardianUpsertRequest

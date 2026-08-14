@@ -59,6 +59,10 @@ public sealed class PeopleController : ControllerBase
     public async Task<ActionResult<ApiResponse<GuardianDto>>> GetGuardian(Guid id, CancellationToken ct)
         => Ok(ApiResponse<GuardianDto>.Ok(await _service.GetGuardianAsync(id, ct)));
 
+    [HttpGet("guardians/{id:guid}/students")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<GuardianLinkedStudentDto>>>> ListGuardianStudents(Guid id, CancellationToken ct)
+        => Ok(ApiResponse<IReadOnlyList<GuardianLinkedStudentDto>>.Ok(await _service.ListGuardianStudentsAsync(id, ct)));
+
     [HttpPost("guardians")]
     public async Task<ActionResult<ApiResponse<GuardianDto>>> CreateGuardian([FromBody] GuardianUpsertRequest request, CancellationToken ct)
         => Ok(ApiResponse<GuardianDto>.Ok(await _service.CreateGuardianAsync(request, ct)));

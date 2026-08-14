@@ -1,25 +1,90 @@
 import { apiClient, apiDownload, triggerBrowserDownload } from '@/api/apiClient';
 import { buildQuery, fetchOrFallback, unwrapList } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
-import type { EstadoCuenta, PagoConcepto } from '@/mocks/finanzas';
-import {
-  estadoCuentaPorAlumno,
-  ingresosEgresos,
-  ingresosPorConcepto,
-  pagosRecientes,
-  resumenFinanciero,
-  egresosRecientes,
-} from '@/mocks/finanzas';
+import type { EstadoCuenta, EgresoItem, IngresoEgreso, PagoConcepto } from '@/mocks/finanzas';
+import { estadoCuentaPorAlumno } from '@/mocks/finanzas';
 
 /** Caja v1: pago parcial NO soportado. */
 export const CASH_V1_PARTIAL_PAYMENTS = false;
 
 export interface FinanceSummary {
   ingresosMes: number;
+  ingresosMesAnterior: number;
   egresosMes: number;
+  egresosMesAnterior: number;
   saldoPendiente: number;
-  tasaCobranza: number;
-  [key: string]: unknown;
+  saldoVencido: number;
+  pagosHoy: number;
+  montoHoy: number;
+  tasaMoratoria: number;
+  alumnosConAdeudo: number;
+  totalAlumnos: number;
+}
+
+export interface ConceptoIngreso {
+  concepto: string;
+  monto: number;
+  porcentaje: number;
+  color: string;
+}
+
+const CONCEPT_COLORS = [
+  'bg-primary-500',
+  'bg-accent-500',
+  'bg-amber-500',
+  'bg-emerald-500',
+  'bg-sky-500',
+  'bg-violet-500',
+  'bg-rose-500',
+];
+
+const EMPTY_SUMMARY: FinanceSummary = {
+  ingresosMes: 0,
+  ingresosMesAnterior: 0,
+  egresosMes: 0,
+  egresosMesAnterior: 0,
+  saldoPendiente: 0,
+  saldoVencido: 0,
+  pagosHoy: 0,
+  montoHoy: 0,
+  tasaMoratoria: 5,
+  alumnosConAdeudo: 0,
+  totalAlumnos: 0,
+};
+
+function yearRange() {
+  const now = new Date();
+  const from = `${now.getFullYear()}-01-01`;
+  const to = now.toISOString().slice(0, 10);
+  return { from, to, now };
+}
+
+function monthKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function parsePeriodToMonthKey(period: string): string | null {
+  const p = period.trim();
+  if (/^\d{4}-\d{2}/.test(p)) return p.slice(0, 7);
+  const months: Record<string, number> = {
+    ene: 0, feb: 1, mar: 2, abr: 3, may: 4, jun: 5,
+    jul: 6, ago: 7, sep: 8, oct: 9, nov: 10, dic: 11,
+    jan: 0, apr: 3, aug: 7, dec: 11,
+  };
+  const low = p.toLowerCase().slice(0, 3);
+  if (low in months) {
+    const y = new Date().getFullYear();
+    return `${y}-${String(months[low] + 1).padStart(2, '0')}`;
+  }
+  return null;
+}
+
+function shortMonthLabel(period: string): string {
+  const key = parsePeriodToMonthKey(period);
+  if (!key) return period.slice(0, 3);
+  const [, m] = key.split('-');
+  const labels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  return labels[Number(m) - 1] ?? period;
 }
 
 /** Alineado con CreatePaymentRequest del BE (+ campos UI opcionales). */
@@ -33,7 +98,6 @@ export interface RegisterPaymentRequest {
   reference?: string;
   idempotencyKey?: string;
   notes?: string;
-  /** Campos legacy UI. */
   concept?: string;
   type?: string;
   paymentDate?: string;
@@ -41,13 +105,96 @@ export interface RegisterPaymentRequest {
   folio?: string;
 }
 
-/** GET /payments — no hay /finance/summary en BE; se usa fallback para KPIs. */
+/** KPIs derivados de reports + charges (sin mocks engañosos). */
 export async function getFinanceSummary(params: {
   branchId?: string | null;
   cycleId?: string | null;
-}): Promise<FetchResult<typeof resumenFinanciero>> {
-  void params;
-  return { data: resumenFinanciero, source: 'fallback', message: 'Endpoint /finance/summary no disponible; usar reports.' };
+}): Promise<FetchResult<FinanceSummary>> {
+  void params.cycleId;
+  const { from, to, now } = yearRange();
+  const thisKey = monthKey(now);
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const prevKey = monthKey(prev);
+  const today = to;
+
+  try {
+    const qIe = buildQuery({ branchId: params.branchId, from, to });
+    const qMor = buildQuery({ branchId: params.branchId });
+    const qPay = buildQuery({ branchId: params.branchId, page: 1, pageSize: 200 });
+    const qCh = buildQuery({ branchId: params.branchId, page: 1, pageSize: 200 });
+
+    const [ieRes, morRes, payRes, chRes] = await Promise.all([
+      apiClient<Record<string, unknown>[]>(`/reports/income-expense${qIe}`),
+      apiClient<{ items?: Record<string, unknown>[] }>(`/reports/morosity${qMor}`),
+      apiClient<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(`/payments${qPay}`),
+      apiClient<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(`/charges${qCh}`),
+    ]);
+
+    const rows = ieRes.success && Array.isArray(ieRes.data) ? ieRes.data : [];
+    let ingresosMes = 0;
+    let ingresosMesAnterior = 0;
+    let egresosMes = 0;
+    let egresosMesAnterior = 0;
+    for (const raw of rows) {
+      const period = String(raw.period ?? raw.Period ?? '');
+      const key = parsePeriodToMonthKey(period) ?? period.slice(0, 7);
+      const income = Number(raw.income ?? raw.Income ?? 0);
+      const expense = Number(raw.expense ?? raw.Expense ?? 0);
+      if (key === thisKey) {
+        ingresosMes += income;
+        egresosMes += expense;
+      } else if (key === prevKey) {
+        ingresosMesAnterior += income;
+        egresosMesAnterior += expense;
+      }
+    }
+
+    const morItemsRaw = morRes.success
+      ? (Array.isArray(morRes.data) ? morRes.data : morRes.data?.items ?? [])
+      : [];
+    const morItems = morItemsRaw as Record<string, unknown>[];
+    const alumnosAdeudo = new Set(
+      morItems.map((x) => String(x.studentId ?? '')).filter(Boolean)
+    );
+    const saldoVencido = morItems.reduce((s, x) => s + Number(x.netAmount ?? 0), 0);
+
+    const payments = payRes.success ? unwrapList(payRes.data) : [];
+    const pagosHoyList = payments.filter((p) => {
+      const paid = String((p as Record<string, unknown>).paidAt ?? '').slice(0, 10);
+      return paid === today;
+    });
+    const montoHoy = pagosHoyList.reduce(
+      (s, p) => s + Number((p as Record<string, unknown>).amount ?? 0),
+      0
+    );
+
+    const charges = chRes.success ? unwrapList(chRes.data) : [];
+    const saldoPendiente = charges
+      .filter((c) => {
+        const st = String((c as Record<string, unknown>).status ?? '').toLowerCase();
+        return st !== 'paid' && st !== 'pagado' && st !== 'cancelled' && st !== 'canceled';
+      })
+      .reduce((s, c) => s + Number((c as Record<string, unknown>).netAmount ?? (c as Record<string, unknown>).grossAmount ?? 0), 0);
+
+    return {
+      data: {
+        ...EMPTY_SUMMARY,
+        ingresosMes,
+        ingresosMesAnterior,
+        egresosMes,
+        egresosMesAnterior,
+        saldoPendiente: saldoPendiente || saldoVencido,
+        saldoVencido,
+        pagosHoy: pagosHoyList.length,
+        montoHoy,
+        alumnosConAdeudo: alumnosAdeudo.size,
+        totalAlumnos: 0,
+      },
+      source: 'api',
+    };
+  } catch {
+    return { data: EMPTY_SUMMARY, source: 'api', message: 'Resumen financiero sin datos' };
+  }
 }
 
 /** GET /payments */
@@ -65,7 +212,7 @@ export async function listPayments(params: {
   });
   const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
     () => apiClient(`/payments${q}`),
-    () => pagosRecientes as unknown as Record<string, unknown>[]
+    () => []
   );
   const items = unwrapList(result.data).map((raw) => {
     const r = raw as Record<string, unknown>;
@@ -85,8 +232,7 @@ export async function listPayments(params: {
       metodoPago: String(r.paymentMethodName ?? r.metodo ?? ''),
     } as unknown as PagoConcepto;
   });
-  if (result.source === 'api') return { data: items, source: 'api', message: result.message };
-  return { data: items.length ? items : pagosRecientes, source: 'fallback', message: result.message };
+  return { data: items, source: result.source, message: result.message };
 }
 
 /** Estado de cuenta: derivado de charges del alumno (sin endpoint dedicado). */
@@ -96,18 +242,23 @@ export async function getAccountStatement(
   const q = buildQuery({ studentId, page: 1, pageSize: 200 });
   const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
     () => apiClient(`/charges${q}`),
-    () => null as unknown as Record<string, unknown>[]
+    () => []
   );
   if (result.source === 'api') {
     const charges = unwrapList(result.data);
     const pending = charges
       .filter((c) => String((c as Record<string, unknown>).status) !== 'paid')
       .reduce((sum, c) => sum + Number((c as Record<string, unknown>).netAmount ?? 0), 0);
+    const paid = charges
+      .filter((c) => String((c as Record<string, unknown>).status) === 'paid')
+      .reduce((sum, c) => sum + Number((c as Record<string, unknown>).netAmount ?? 0), 0);
     return {
       data: {
-        ...(estadoCuentaPorAlumno[studentId] ?? ({} as EstadoCuenta)),
         alumnoId: studentId,
+        alumnoNombre: String((charges[0] as Record<string, unknown> | undefined)?.studentName ?? ''),
         saldoPendiente: pending,
+        totalPagado: paid,
+        conceptos: [],
       } as EstadoCuenta,
       source: 'api',
     };
@@ -256,32 +407,75 @@ export async function registerPayment(
 export async function getRevenueChart(params: {
   branchId?: string | null;
   cycleId?: string | null;
-}): Promise<FetchResult<typeof ingresosEgresos>> {
-  void params;
-  return { data: ingresosEgresos, source: 'fallback', message: 'Usar GET /reports/income-expense' };
+}): Promise<FetchResult<IngresoEgreso[]>> {
+  void params.cycleId;
+  const { from, to } = yearRange();
+  const q = buildQuery({ branchId: params.branchId, from, to });
+  const result = await fetchOrFallback<Record<string, unknown>[]>(
+    () => apiClient(`/reports/income-expense${q}`),
+    () => []
+  );
+  const data = unwrapList(result.data).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    const period = String(r.period ?? r.Period ?? '');
+    return {
+      mes: shortMonthLabel(period),
+      ingresos: Number(r.income ?? r.Income ?? 0),
+      egresos: Number(r.expense ?? r.Expense ?? 0),
+      meta: 0,
+    } satisfies IngresoEgreso;
+  });
+  return { data, source: result.source, message: result.message };
 }
 
 export async function getRevenueByConcept(params: {
   branchId?: string | null;
-}): Promise<FetchResult<typeof ingresosPorConcepto>> {
-  void params;
-  return { data: ingresosPorConcepto, source: 'fallback', message: 'Usar GET /reports/concepts' };
+}): Promise<FetchResult<ConceptoIngreso[]>> {
+  const { from, to } = yearRange();
+  const q = buildQuery({ branchId: params.branchId, from, to });
+  const result = await fetchOrFallback<Record<string, unknown>[]>(
+    () => apiClient(`/reports/concepts${q}`),
+    () => []
+  );
+  const rows = unwrapList(result.data).map((raw) => {
+    const r = raw as Record<string, unknown>;
+    return {
+      concepto: String(r.conceptName ?? r.ConceptName ?? 'Concepto'),
+      monto: Number(r.paidAmount ?? r.PaidAmount ?? 0),
+    };
+  });
+  const total = rows.reduce((s, r) => s + r.monto, 0) || 1;
+  const data: ConceptoIngreso[] = rows.map((r, i) => ({
+    ...r,
+    porcentaje: Math.round((r.monto / total) * 100),
+    color: CONCEPT_COLORS[i % CONCEPT_COLORS.length],
+  }));
+  return { data, source: result.source, message: result.message };
+}
+
+function normalizeExpense(raw: Record<string, unknown>): EgresoItem {
+  return {
+    id: String(raw.id ?? ''),
+    concepto: String(raw.concept ?? raw.concepto ?? ''),
+    categoria: String(raw.category ?? raw.categoria ?? 'Otros'),
+    monto: Number(raw.amount ?? raw.monto ?? 0),
+    fecha: String(raw.expenseDate ?? raw.fecha ?? '').slice(0, 10),
+    proveedor: String(raw.vendor ?? raw.proveedor ?? '—'),
+    comprobante: raw.reference ? String(raw.reference) : undefined,
+  };
 }
 
 /** GET /expenses */
 export async function listExpenses(params: {
   branchId?: string | null;
-}): Promise<FetchResult<typeof egresosRecientes>> {
+}): Promise<FetchResult<EgresoItem[]>> {
   const q = buildQuery({ branchId: params.branchId, page: 1, pageSize: 100 });
-  const result = await fetchOrFallback(
+  const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
     () => apiClient(`/expenses${q}`),
-    () => egresosRecientes
+    () => []
   );
-  if (result.source === 'api') {
-    const items = unwrapList(result.data as PagedResult<unknown> | unknown[]);
-    return { data: items as typeof egresosRecientes, source: 'api', message: result.message };
-  }
-  return { data: egresosRecientes, source: 'fallback', message: result.message };
+  const items = unwrapList(result.data).map((x) => normalizeExpense(x as Record<string, unknown>));
+  return { data: items, source: result.source, message: result.message };
 }
 
 /** Export vía reportes income-expense. */

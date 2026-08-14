@@ -54,6 +54,7 @@ public interface IPeopleService
     Task LinkGuardianAsync(Guid studentId, LinkGuardianRequest request, CancellationToken ct = default);
     Task UnlinkGuardianAsync(Guid studentId, Guid guardianId, CancellationToken ct = default);
     Task<IReadOnlyList<GuardianDto>> ListStudentGuardiansAsync(Guid studentId, CancellationToken ct = default);
+    Task<IReadOnlyList<GuardianLinkedStudentDto>> ListGuardianStudentsAsync(Guid guardianId, CancellationToken ct = default);
 
     Task<DocumentDto> UploadDocumentAsync(string entityType, Guid entityId, Stream content, string fileName, string contentType, CancellationToken ct = default);
     Task<(DocumentDto Meta, Stream Content)> DownloadDocumentAsync(Guid id, CancellationToken ct = default);
@@ -167,6 +168,12 @@ public sealed class PeopleService : IPeopleService
     {
         var (tenantId, _) = Ctx();
         return _repo.ListGuardiansByStudentAsync(tenantId, studentId, ct);
+    }
+
+    public Task<IReadOnlyList<GuardianLinkedStudentDto>> ListGuardianStudentsAsync(Guid guardianId, CancellationToken ct = default)
+    {
+        var (tenantId, _) = Ctx();
+        return _repo.ListStudentsByGuardianAsync(tenantId, guardianId, ct);
     }
 
     public async Task<DocumentDto> UploadDocumentAsync(string entityType, Guid entityId, Stream content, string fileName, string contentType, CancellationToken ct = default)

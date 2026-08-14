@@ -176,23 +176,28 @@ export default function Sucursales() {
       estadoOperativo: formData.estadoOperativo as Sucursal['estadoOperativo'],
       timeZoneId: formData.timeZoneId,
     };
-    const res = editingSucursal
-      ? await branchesApi.updateBranch(editingSucursal.id, payload)
-      : await branchesApi.createBranch(payload);
-    setSaving(false);
-    if (!res.success) {
-      showToast(res.message || 'No se pudo guardar la sucursal', 'error');
-      return;
+    try {
+      const res = editingSucursal
+        ? await branchesApi.updateBranch(editingSucursal.id, payload)
+        : await branchesApi.createBranch(payload);
+      if (!res.success) {
+        showToast(res.message || 'No se pudo guardar la sucursal', 'error');
+        return;
+      }
+      showToast(
+        editingSucursal
+          ? `Sucursal "${formData.nombre}" actualizada`
+          : `Sucursal "${formData.nombre}" registrada`,
+        'success'
+      );
+      setFormOpen(false);
+      setEditingSucursal(null);
+      invalidateBranches();
+    } catch {
+      showToast('Error de red al guardar la sucursal', 'error');
+    } finally {
+      setSaving(false);
     }
-    showToast(
-      editingSucursal
-        ? `Sucursal "${formData.nombre}" actualizada`
-        : `Sucursal "${formData.nombre}" registrada`,
-      'success'
-    );
-    setFormOpen(false);
-    setEditingSucursal(null);
-    invalidateBranches();
   };
 
   return (

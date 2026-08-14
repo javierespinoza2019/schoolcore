@@ -12,6 +12,8 @@ CREATE OR ALTER PROCEDURE dbo.sp_Guardian_Create
 AS BEGIN SET NOCOUNT ON;
     INSERT INTO dbo.Guardian (Id,TenantId,FirstName,LastName,Email,Phone,Occupation,Address,Status,CreatedAt,CreatedBy)
     VALUES (@Id,@TenantId,@FirstName,@LastName,@Email,@Phone,@Occupation,@Address,@Status,SYSUTCDATETIME(),@CreatedBy);
-    SELECT Id, TenantId, FirstName, LastName, Email, Phone, Occupation, Address, Status, CreatedAt, UpdatedAt FROM dbo.Guardian WHERE Id=@Id;
+    SELECT g.Id, g.TenantId, g.FirstName, g.LastName, g.Email, g.Phone, g.Occupation, g.Address, g.Status, g.CreatedAt, g.UpdatedAt,
+           CAST(0 AS INT) AS ChildrenCount
+    FROM dbo.Guardian g WHERE g.Id=@Id;
 END
 GO

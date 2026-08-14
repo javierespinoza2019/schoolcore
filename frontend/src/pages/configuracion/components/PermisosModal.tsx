@@ -39,11 +39,13 @@ export default function PermisosModal({ open, onClose, rol, onSave }: Props) {
   const handleSave = () => {
     setSaving(true);
     setTimeout(() => {
-      onSave(rol.id, selected);
-      showToast(`Permisos de "${rol.nombre}" actualizados`, 'success');
+      showToast(
+        'La matriz de permisos por rol aún no está disponible. Los cambios no se guardaron.',
+        'info'
+      );
       setSaving(false);
       onClose();
-    }, 600);
+    }, 300);
   };
 
   return (

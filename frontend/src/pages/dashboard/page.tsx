@@ -11,13 +11,10 @@ import { useSchoolContext } from '@/context/SchoolContext';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import { getDashboardKpis } from '@/api/dashboardApi';
-import { kpiData as mockKpis, paymentDistribution as mockDist } from '@/mocks/dashboard';
 
-function PaymentDistributionCard({
-  distribution,
-}: {
-  distribution: typeof mockDist;
-}) {
+type DistItem = { name: string; value: number; color: string };
+
+function PaymentDistributionCard({ distribution }: { distribution: DistItem[] }) {
   const total = distribution.reduce((sum, item) => sum + item.value, 0);
 
   return (
@@ -77,8 +74,10 @@ export default function Dashboard() {
     errorToast: 'No se pudieron cargar los KPIs del dashboard',
   });
 
-  const kpis = dashQ.data?.kpis ?? mockKpis;
-  const distribution = dashQ.data?.paymentDistribution ?? mockDist;
+  const kpis = dashQ.data?.kpis ?? [];
+  const distribution = dashQ.data?.paymentDistribution ?? [];
+  const recentActivity = dashQ.data?.recentActivity ?? [];
+  const revenueData = dashQ.data?.revenueData ?? [];
   const firstName = user?.firstName || 'Usuario';
 
   useEffect(() => {
@@ -115,6 +114,12 @@ export default function Dashboard() {
               <SkeletonCard key={i} />
             ))}
           </div>
+        ) : kpis.length === 0 ? (
+          <Card padding="md">
+            <p className="text-xs text-foreground-400 py-6 text-center">
+              Sin KPIs disponibles aún. Los indicadores se calcularán cuando haya datos operativos.
+            </p>
+          </Card>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {kpis.map((kpi, i) => (
@@ -143,13 +148,13 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-3">
-            <RecentActivity />
+            <RecentActivity items={recentActivity} />
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <div className="lg:col-span-3">
-            <RevenueChart />
+            <RevenueChart data={revenueData} />
           </div>
         </div>
       </div>

@@ -135,7 +135,7 @@ export async function resolveEffectiveTimeZone(branchId?: string | null): Promis
 /** GET /payment-methods */
 export async function listPaymentMethods(): Promise<FetchResult<PaymentMethod[]>> {
   const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
-    () => apiClient('/payment-methods'),
+    () => apiClient('/payment-methods?pageSize=100'),
     () => metodosPago as unknown as Record<string, unknown>[]
   );
   const items = unwrapList(result.data).map((raw) => {
@@ -147,15 +147,67 @@ export async function listPaymentMethods(): Promise<FetchResult<PaymentMethod[]>
       info: String(r.info ?? r.details ?? ''),
     } satisfies PaymentMethod;
   });
-  if (result.source === 'api') return { data: items.filter((m) => m.activo), source: 'api' };
-  return { data: items.length ? items.filter((m) => m.activo) : metodosPago, source: 'fallback' };
+  if (result.source === 'api') return { data: items, source: 'api' };
+  return { data: items.length ? items : metodosPago, source: 'fallback' };
+}
+
+export async function createPaymentMethod(
+  payload: Partial<PaymentMethod>
+): Promise<ApiResponse<PaymentMethod>> {
+  const res = await apiClient<Record<string, unknown>>('/payment-methods', {
+    method: 'POST',
+    body: {
+      name: payload.nombre ?? '',
+      info: payload.info ?? null,
+      isActive: payload.activo ?? true,
+      sortOrder: 0,
+    },
+  });
+  if (res.success && res.data) {
+    const r = res.data;
+    return {
+      ...res,
+      data: {
+        id: String(r.id ?? ''),
+        nombre: String(r.name ?? payload.nombre ?? ''),
+        activo: Boolean(r.isActive ?? true),
+        info: String(r.info ?? payload.info ?? ''),
+      },
+    };
+  }
+  return { ...res, data: null };
 }
 
 export async function updatePaymentMethod(
   id: string,
   payload: Partial<PaymentMethod>
 ): Promise<ApiResponse<PaymentMethod>> {
-  return apiClient(`/payment-methods/${id}`, { method: 'PUT', body: payload });
+  const res = await apiClient<Record<string, unknown>>(`/payment-methods/${id}`, {
+    method: 'PUT',
+    body: {
+      name: payload.nombre ?? '',
+      info: payload.info ?? null,
+      isActive: payload.activo ?? true,
+      sortOrder: 0,
+    },
+  });
+  if (res.success && res.data) {
+    const r = res.data;
+    return {
+      ...res,
+      data: {
+        id: String(r.id ?? id),
+        nombre: String(r.name ?? payload.nombre ?? ''),
+        activo: Boolean(r.isActive ?? payload.activo ?? true),
+        info: String(r.info ?? payload.info ?? ''),
+      },
+    };
+  }
+  return { ...res, data: null };
+}
+
+export async function deletePaymentMethod(id: string): Promise<ApiResponse<null>> {
+  return apiClient<null>(`/payment-methods/${id}`, { method: 'DELETE' });
 }
 
 /** GET /payment-concepts */
@@ -191,25 +243,158 @@ export async function listPaymentConcepts(): Promise<FetchResult<ConceptoPago[]>
 export async function createPaymentConcept(
   payload: Partial<ConceptoPago>
 ): Promise<ApiResponse<ConceptoPago>> {
-  return apiClient('/payment-concepts', { method: 'POST', body: payload });
+  const res = await apiClient<Record<string, unknown>>('/payment-concepts', {
+    method: 'POST',
+    body: {
+      name: payload.nombre ?? '',
+      conceptType: payload.tipo ?? 'mensual',
+      defaultAmount: payload.monto ?? 0,
+      differentiatedByLevel: payload.diferenciadoPorNivel ?? false,
+      isActive: payload.activo ?? true,
+    },
+  });
+  if (res.success && res.data) {
+    const r = res.data;
+    return {
+      ...res,
+      data: {
+        id: String(r.id ?? ''),
+        nombre: String(r.name ?? payload.nombre ?? ''),
+        monto: Number(r.defaultAmount ?? payload.monto ?? 0),
+        tipo: String(r.conceptType ?? payload.tipo ?? ''),
+        activo: Boolean(r.isActive ?? true),
+        diferenciadoPorNivel: Boolean(r.differentiatedByLevel ?? false),
+        montosPorNivel: payload.montosPorNivel ?? [],
+      },
+    };
+  }
+  return { ...res, data: null };
 }
 
 export async function updatePaymentConcept(
   id: string,
   payload: Partial<ConceptoPago>
 ): Promise<ApiResponse<ConceptoPago>> {
-  return apiClient(`/payment-concepts/${id}`, { method: 'PUT', body: payload });
+  const res = await apiClient<Record<string, unknown>>(`/payment-concepts/${id}`, {
+    method: 'PUT',
+    body: {
+      name: payload.nombre ?? '',
+      conceptType: payload.tipo ?? 'mensual',
+      defaultAmount: payload.monto ?? 0,
+      differentiatedByLevel: payload.diferenciadoPorNivel ?? false,
+      isActive: payload.activo ?? true,
+    },
+  });
+  if (res.success && res.data) {
+    const r = res.data;
+    return {
+      ...res,
+      data: {
+        id: String(r.id ?? id),
+        nombre: String(r.name ?? payload.nombre ?? ''),
+        monto: Number(r.defaultAmount ?? payload.monto ?? 0),
+        tipo: String(r.conceptType ?? payload.tipo ?? ''),
+        activo: Boolean(r.isActive ?? payload.activo ?? true),
+        diferenciadoPorNivel: Boolean(r.differentiatedByLevel ?? payload.diferenciadoPorNivel ?? false),
+        montosPorNivel: payload.montosPorNivel ?? [],
+      },
+    };
+  }
+  return { ...res, data: null };
+}
+
+export async function setPaymentConceptAmounts(
+  id: string,
+  amounts: { educationLevelId: string; amount: number }[]
+): Promise<ApiResponse<null>> {
+  return apiClient<null>(`/payment-concepts/${id}/amounts`, {
+    method: 'PUT',
+    body: {
+      amounts: amounts.map((a) => ({
+        educationLevelId: a.educationLevelId,
+        amount: a.amount,
+      })),
+    },
+  });
+}
+
+export async function deletePaymentConcept(id: string): Promise<ApiResponse<null>> {
+  return apiClient<null>(`/payment-concepts/${id}`, { method: 'DELETE' });
+}
+
+function normalizeEducationLevel(raw: Record<string, unknown>): EducationLevel {
+  return {
+    id: String(raw.id ?? ''),
+    nombre: String(raw.name ?? raw.nombre ?? ''),
+    grados: Number(raw.gradeCount ?? raw.grados ?? 0),
+    activo: Boolean(raw.isActive ?? raw.activo ?? true),
+  };
 }
 
 /** GET /education-levels */
 export async function listEducationLevels(): Promise<FetchResult<EducationLevel[]>> {
-  const result = await fetchOrFallback(
-    () => apiClient('/education-levels'),
-    () => nivelesEducativos
+  const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
+    () => apiClient('/education-levels?pageSize=100'),
+    () => nivelesEducativos as unknown as Record<string, unknown>[]
   );
-  const items = Array.isArray(result.data) ? result.data : unwrapList(result.data as PagedResult<EducationLevel>);
+  const items = unwrapList(result.data).map((x) =>
+    normalizeEducationLevel(x as Record<string, unknown>)
+  );
   if (result.source === 'api') return { data: items, source: 'api' };
   return { data: items.length ? items : nivelesEducativos, source: 'fallback' };
+}
+
+export async function createEducationLevel(
+  payload: Partial<EducationLevel>
+): Promise<ApiResponse<EducationLevel>> {
+  const name = payload.nombre ?? '';
+  const code = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .slice(0, 20)
+    .toUpperCase() || 'LVL';
+  const res = await apiClient<Record<string, unknown>>('/education-levels', {
+    method: 'POST',
+    body: {
+      name,
+      code,
+      gradeCount: payload.grados ?? 1,
+      sortOrder: 0,
+      isActive: payload.activo ?? true,
+    },
+  });
+  if (res.success && res.data) return { ...res, data: normalizeEducationLevel(res.data) };
+  return { ...res, data: null };
+}
+
+export async function updateEducationLevel(
+  id: string,
+  payload: Partial<EducationLevel>
+): Promise<ApiResponse<EducationLevel>> {
+  const name = payload.nombre ?? '';
+  const code = name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '')
+    .slice(0, 20)
+    .toUpperCase() || 'LVL';
+  const res = await apiClient<Record<string, unknown>>(`/education-levels/${id}`, {
+    method: 'PUT',
+    body: {
+      name,
+      code,
+      gradeCount: payload.grados ?? 1,
+      sortOrder: 0,
+      isActive: payload.activo ?? true,
+    },
+  });
+  if (res.success && res.data) return { ...res, data: normalizeEducationLevel(res.data) };
+  return { ...res, data: null };
+}
+
+export async function deleteEducationLevel(id: string): Promise<ApiResponse<null>> {
+  return apiClient<null>(`/education-levels/${id}`, { method: 'DELETE' });
 }
 
 /** GET /roles */

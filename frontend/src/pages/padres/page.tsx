@@ -19,6 +19,7 @@ import { useSchoolContext } from '@/context/SchoolContext';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as parentsApi from '@/api/parentsApi';
+import { isGuid } from '@/api/helpers';
 
 function exportToCSV(data: Parent[]) {
   const headers = ['ID', 'Nombre', 'Email', 'Teléfono', 'Ocupación', 'Dirección', 'Hijos', 'Estado', 'Registro'];
@@ -158,8 +159,22 @@ export default function Padres() {
     setFormOpen(true);
   };
 
-  const handleEdit = (parent: Parent) => {
-    setEditingParent(parent);
+  const handleEdit = async (parent: Parent) => {
+    if (isGuid(parent.id)) {
+      const linked = await parentsApi.listParentStudents(parent.id);
+      if (linked.success && linked.data) {
+        setEditingParent({
+          ...parent,
+          childrenIds: linked.data.map((s) => s.id),
+          childrenNames: linked.data.map((s) => s.fullName),
+          childrenCount: linked.data.length,
+        });
+      } else {
+        setEditingParent(parent);
+      }
+    } else {
+      setEditingParent(parent);
+    }
     setFormOpen(true);
   };
 
@@ -185,26 +200,23 @@ export default function Padres() {
   const handleSave = async (formData: ParentFormData) => {
     setSaving(true);
     const payload = {
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      fullName: `${formData.firstName} ${formData.lastName}`,
-      email: formData.email,
-      phone: formData.phone,
-      occupation: formData.occupation,
-      address: formData.address,
+      firstName: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      fullName: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
+      email: formData.email.trim(),
+      phone: formData.phone.trim(),
+      occupation: formData.occupation.trim(),
+      address: formData.address.trim(),
       status: formData.status as Parent['status'],
     };
     try {
+      let parentId = editingParent?.id;
       if (editingParent) {
         const res = await parentsApi.updateParent(editingParent.id, payload);
-        if (!res.success && !parentsQuery.isFallback) {
+        if (!res.success) {
           showToast(res.message || 'No se pudo actualizar', 'error');
           return;
         }
-        setData((prev) =>
-          prev.map((p) => (p.id === editingParent.id ? { ...p, ...payload } : p))
-        );
-        showToast(`Tutor "${payload.fullName}" actualizado correctamente`, 'success');
       } else {
         const res = await parentsApi.createParent({
           ...payload,
@@ -213,27 +225,42 @@ export default function Padres() {
           childrenNames: [],
           createdAt: new Date().toISOString().split('T')[0],
         });
-        if (res.success && res.data) {
-          setData((prev) => [...prev, res.data!]);
-        } else if (parentsQuery.isFallback) {
-          const newParent: Parent = {
-            id: `PAR-${Date.now()}`,
-            ...payload,
-            childrenCount: 0,
-            childrenIds: [],
-            childrenNames: [],
-            createdAt: new Date().toISOString().split('T')[0],
-          };
-          setData((prev) => [...prev, newParent]);
-        } else {
+        if (!res.success || !res.data) {
           showToast(res.message || 'No se pudo crear', 'error');
           return;
         }
-        showToast(`Tutor "${payload.fullName}" registrado correctamente`, 'success');
+        parentId = res.data.id;
       }
+
+      if (parentId) {
+        const currentIds = new Set((editingParent?.childrenIds ?? []).filter(Boolean));
+        const nextIds = new Set(formData.linkedStudentIds.filter(Boolean));
+        for (const studentId of nextIds) {
+          if (!currentIds.has(studentId)) {
+            const linkRes = await parentsApi.linkStudent(parentId, studentId);
+            if (!linkRes.success) {
+              showToast(linkRes.message || 'Tutor guardado, pero un vínculo falló', 'error');
+            }
+          }
+        }
+        if (editingParent) {
+          for (const studentId of currentIds) {
+            if (!nextIds.has(studentId)) {
+              await parentsApi.unlinkStudent(parentId, studentId);
+            }
+          }
+        }
+      }
+
+      showToast(
+        `Tutor "${payload.fullName}" ${editingParent ? 'actualizado' : 'registrado'} correctamente`,
+        'success'
+      );
       invalidate();
       setFormOpen(false);
       setEditingParent(null);
+    } catch {
+      showToast('Error de red al guardar tutor', 'error');
     } finally {
       setSaving(false);
     }
@@ -490,8 +517,9 @@ export default function Padres() {
         <ParentFormModal
           open={formOpen}
           onClose={() => { setFormOpen(false); setEditingParent(null); }}
-          onSave={handleSave}
+          onSave={(data) => void handleSave(data)}
           parent={editingParent}
+          saving={saving}
         />
 
         <DeleteConfirmModal

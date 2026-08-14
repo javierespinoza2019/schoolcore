@@ -18,12 +18,14 @@ import type { StudentFormData } from '@/pages/alumnos/components/StudentFormModa
 import UploadDocumentModal from '@/pages/alumnos/components/UploadDocumentModal';
 import VincularTutorModal from '@/pages/alumnos/components/VincularTutorModal';
 import DeleteConfirmModal from '@/components/base/DeleteConfirmModal';
-import type { Student } from '@/mocks/alumnos';
+import type { Student, StudentParent } from '@/mocks/alumnos';
 import { getProfesorDelAlumno, getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
 import { useToast } from '@/components/base/Toast';
 import * as studentsApi from '@/api/studentsApi';
+import * as classroomsApi from '@/api/classroomsApi';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
+import { useApiResource } from '@/hooks/useApiResource';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
 
 const formatCurrency = (amount: number) => {
@@ -57,6 +59,8 @@ export default function AlumnoDetail() {
   const [docModalOpen, setDocModalOpen] = useState(false);
   const [tutorModalOpen, setTutorModalOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Student | null>(null);
+  const [unlinkTutorTarget, setUnlinkTutorTarget] = useState<StudentParent | null>(null);
+  const [unlinkingParentId, setUnlinkingParentId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const studentQuery = useQuery({
@@ -70,6 +74,12 @@ export default function AlumnoDetail() {
     queryFn: () => studentsApi.listStudentGuardians(id),
     enabled: Boolean(id) && isGuid(id),
   });
+
+  const classroomsQ = useApiResource({
+    queryKey: queryKeys.classrooms.list({ for: 'alumno-detail' }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+  });
+  const classrooms = classroomsQ.data ?? [];
 
   useEffect(() => {
     if (!studentQuery.data?.data) return;
@@ -87,6 +97,8 @@ export default function AlumnoDetail() {
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.students.detail(id) });
     void queryClient.invalidateQueries({ queryKey: queryKeys.students.all });
+    void queryClient.invalidateQueries({ queryKey: [...queryKeys.students.detail(id), 'guardians'] });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.parents.all });
   }, [queryClient, id]);
 
   if (!isGuid(id)) {
@@ -140,9 +152,10 @@ export default function AlumnoDetail() {
     student.level,
     student.grade,
     student.group,
-    student.branchName
+    student.branchName,
+    classrooms
   );
-  const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName);
+  const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms);
 
   const handlePaymentRegistered = (updatedStudent: Student) => {
     setStudentState(updatedStudent);
@@ -183,7 +196,8 @@ export default function AlumnoDetail() {
     try {
       const res = await studentsApi.updateStudent(student.id, payload);
       if (!res.success) {
-        showToast(res.message || 'No se pudo actualizar', 'error');
+        const details = (res.errors ?? []).filter(Boolean).join('. ');
+        showToast(details || res.message || 'No se pudo actualizar', 'error');
         return;
       }
       if (formData.photoFile) {
@@ -222,6 +236,25 @@ export default function AlumnoDetail() {
     setStudentState(updatedStudent);
     invalidate();
     showToast('Tutor vinculado correctamente', 'success');
+  };
+
+  const confirmUnlinkTutor = async () => {
+    if (!unlinkTutorTarget || !studentState) return;
+    setUnlinkingParentId(unlinkTutorTarget.id);
+    try {
+      const res = await studentsApi.unlinkParent(studentState.id, unlinkTutorTarget.id);
+      if (!res.success) {
+        showToast(res.message || 'No se pudo desvincular el tutor', 'error');
+        return;
+      }
+      showToast(`Tutor "${unlinkTutorTarget.name}" desvinculado`, 'success');
+      setUnlinkTutorTarget(null);
+      invalidate();
+    } catch {
+      showToast('Error de red al desvincular', 'error');
+    } finally {
+      setUnlinkingParentId(null);
+    }
   };
 
   const confirmDelete = async () => {
@@ -283,7 +316,7 @@ export default function AlumnoDetail() {
       id: 'expediente',
       label: 'Expediente',
       icon: 'ri-profile-line',
-      content: <ExpedienteTab student={student} />,
+      content: <ExpedienteTab student={student} classrooms={classrooms} />,
     },
     {
       id: 'timeline',
@@ -313,7 +346,14 @@ export default function AlumnoDetail() {
       label: 'Padres',
       icon: 'ri-user-heart-line',
       count: student.parents.length,
-      content: <PadresTab student={student} onVincularTutor={() => setTutorModalOpen(true)} />,
+      content: (
+        <PadresTab
+          student={student}
+          onVincularTutor={() => setTutorModalOpen(true)}
+          onUnlinkTutor={(parent) => setUnlinkTutorTarget(parent)}
+          unlinkingParentId={unlinkingParentId}
+        />
+      ),
     },
   ];
 
@@ -419,6 +459,7 @@ export default function AlumnoDetail() {
           onSave={handleEditSave}
           student={student}
           saving={saving}
+          classrooms={classrooms}
         />
 
         <UploadDocumentModal
@@ -442,6 +483,16 @@ export default function AlumnoDetail() {
           title="Eliminar Alumno"
           message="¿Estás seguro de que deseas eliminar a este alumno? Esta acción no se puede deshacer."
           itemName={deleteTarget?.fullName}
+        />
+
+        <DeleteConfirmModal
+          open={!!unlinkTutorTarget}
+          onClose={() => setUnlinkTutorTarget(null)}
+          onConfirm={() => void confirmUnlinkTutor()}
+          title="Desvincular Tutor"
+          message="¿Deseas desvincular este tutor del alumno? El tutor no se eliminará del sistema."
+          itemName={unlinkTutorTarget?.name}
+          loading={Boolean(unlinkingParentId)}
         />
       </div>
     </MainLayout>

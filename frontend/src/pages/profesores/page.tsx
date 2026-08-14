@@ -18,12 +18,14 @@ import EmptyState from '@/components/base/EmptyState';
 import { useToast } from '@/components/base/Toast';
 import { Profesor } from '@/mocks/profesores';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
-import { salonesData, Salon, SalonGrupo } from '@/mocks/salones';
-import { students, Student } from '@/mocks/alumnos';
+import type { Salon, SalonGrupo } from '@/mocks/salones';
+import type { Student } from '@/mocks/alumnos';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as teachersApi from '@/api/teachersApi';
+import * as classroomsApi from '@/api/classroomsApi';
+import * as studentsApi from '@/api/studentsApi';
 import { isGuid } from '@/api/helpers';
 
 function formatCurrency(amount: number) {
@@ -49,27 +51,33 @@ interface GrupoDetalle {
   alumnos: Student[];
 }
 
-function getGruposDelProfesor(nombreProfesor: string): GrupoDetalle[] {
+function getGruposDelProfesor(
+  nombreProfesor: string,
+  classrooms: Salon[],
+  studentsList: Student[]
+): GrupoDetalle[] {
   const resultados: GrupoDetalle[] = [];
-  for (const salon of salonesData) {
+  for (const salon of classrooms) {
     if (salon.gruposAsignados && salon.gruposAsignados.length > 0) {
       const gruposDelProfe = salon.gruposAsignados.filter((g) => g.profesor === nombreProfesor);
       for (const grupo of gruposDelProfe) {
-        const alumnosDelGrupo = students.filter(
+        const alumnosDelGrupo = studentsList.filter(
           (alumno) =>
             alumno.level === grupo.nivel &&
             alumno.group === grupo.grupo &&
-            alumno.branchName === salon.sucursal &&
+            (alumno.branchName === salon.sucursal ||
+              (salon.branchId && alumno.branchId === salon.branchId)) &&
             alumno.status === 'active'
         );
         resultados.push({ salon, grupoEspecifico: grupo, alumnos: alumnosDelGrupo });
       }
     } else if (salon.profesorAsignado === nombreProfesor) {
-      const alumnosDelGrupo = students.filter(
+      const alumnosDelGrupo = studentsList.filter(
         (alumno) =>
           alumno.level === salon.nivel &&
           alumno.group === salon.grupo &&
-          alumno.branchName === salon.sucursal &&
+          (alumno.branchName === salon.sucursal ||
+            (salon.branchId && alumno.branchId === salon.branchId)) &&
           alumno.status === 'active'
       );
       resultados.push({
@@ -80,7 +88,7 @@ function getGruposDelProfesor(nombreProfesor: string): GrupoDetalle[] {
           nivel: salon.nivel,
           horario: salon.horarioClase,
           profesor: salon.profesorAsignado,
-          ocupados: salon.ocupados,
+          ocupados: alumnosDelGrupo.length,
         },
         alumnos: alumnosDelGrupo,
       });
@@ -124,10 +132,22 @@ export default function Profesores() {
   const { branch, branchOptions } = useSchoolContext();
 
   const [data, setData] = useState<Profesor[]>([]);
+  const [classrooms, setClassrooms] = useState<Salon[]>([]);
+  const [studentsList, setStudentsList] = useState<Student[]>([]);
   const teachersQ = useApiResource({
     queryKey: queryKeys.teachers.list({}),
     queryFn: () => teachersApi.listTeachers({ pageSize: 200 }),
     errorToast: 'Error al cargar profesores',
+  });
+  const classroomsQ = useApiResource({
+    queryKey: queryKeys.classrooms.list({ for: 'profesores' }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+    errorToast: 'Error al cargar salones',
+  });
+  const studentsQ = useApiResource({
+    queryKey: queryKeys.students.list({ for: 'profesores' }),
+    queryFn: () => studentsApi.listStudents({ pageSize: 500 }),
+    errorToast: 'Error al cargar alumnos',
   });
   useEffect(() => {
     if (!teachersQ.data) return;
@@ -139,6 +159,19 @@ export default function Profesores() {
       }))
     );
   }, [teachersQ.data, branchOptions, branch?.name]);
+  useEffect(() => {
+    if (!classroomsQ.data) return;
+    const names = new Map(branchOptions.map((b) => [b.id, b.name]));
+    setClassrooms(
+      classroomsQ.data.map((s) => ({
+        ...s,
+        sucursal: s.sucursal || names.get(s.branchId || '') || branch?.name || '',
+      }))
+    );
+  }, [classroomsQ.data, branchOptions, branch?.name]);
+  useEffect(() => {
+    if (studentsQ.data) setStudentsList(studentsQ.data);
+  }, [studentsQ.data]);
 
   const [search, setSearch] = useState('');
   const [sucursalFilter, setSucursalFilter] = useState('');
@@ -196,8 +229,8 @@ export default function Profesores() {
 
   const quickViewGrupos = useMemo(() => {
     if (!quickViewProf) return [];
-    return getGruposDelProfesor(quickViewProf.nombre);
-  }, [quickViewProf]);
+    return getGruposDelProfesor(quickViewProf.nombre, classrooms, studentsList);
+  }, [quickViewProf, classrooms, studentsList]);
 
   const allIdsOnPage = useMemo(() => new Set(paginated.map((p) => String(p.id))), [paginated]);
   const allPageSelected = paginated.length > 0 && paginated.every((p) => selectedIds.has(String(p.id)));
@@ -436,7 +469,7 @@ export default function Profesores() {
       width: '100px',
       align: 'center',
       render: (row) => {
-        const grupos = getGruposDelProfesor(row.nombre);
+        const grupos = getGruposDelProfesor(row.nombre, classrooms, studentsList);
         const totalAlumnos = grupos.reduce((acc, g) => acc + g.alumnos.length, 0);
         return (
           <div className="flex flex-col items-center gap-0.5">

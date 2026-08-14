@@ -14,12 +14,14 @@ import { SkeletonTable } from '@/components/base/Skeleton';
 import EmptyState from '@/components/base/EmptyState';
 import { useToast } from '@/components/base/Toast';
 import type { Student } from '@/mocks/alumnos';
+import type { Salon } from '@/mocks/salones';
 import { getProfesorDelAlumno, getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
 import { useNavigate } from 'react-router-dom';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as studentsApi from '@/api/studentsApi';
+import * as classroomsApi from '@/api/classroomsApi';
 import { usePermissions } from '@/permissions/PermissionContext';
 import { ViewCodes } from '@/permissions/viewCodes';
 import { isGuid } from '@/api/helpers';
@@ -29,11 +31,11 @@ const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 0 }).format(amount);
 };
 
-function exportToCSV(data: Student[]) {
+function exportToCSV(data: Student[], classrooms: Salon[] = []) {
   const headers = ['Nombre', 'Matrícula', 'Nivel', 'Grado', 'Grupo', 'Sucursal', 'Estado', 'Saldo', 'Último Pago', 'Email', 'Teléfono', 'Profesor', 'Salón', 'Beca'];
   const rows = data.map((s) => {
-    const profesor = getProfesorDelAlumno(s.level, s.grade, s.group, s.branchName);
-    const salon = getSalonDelAlumno(s.level, s.grade, s.group, s.branchName);
+    const profesor = getProfesorDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms);
+    const salon = getSalonDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms);
     return [
       s.fullName,
       s.enrollment,
@@ -92,6 +94,11 @@ export default function Alumnos() {
     queryFn: () => studentsApi.listStudents({ pageSize: 200 }),
     errorToast: 'Error al cargar alumnos',
   });
+  const classroomsQ = useApiResource({
+    queryKey: queryKeys.classrooms.list({ for: 'alumnos' }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+  });
+  const classrooms = classroomsQ.data ?? [];
 
   useEffect(() => {
     if (studentsQuery.data) setData(studentsQuery.data);
@@ -227,7 +234,13 @@ export default function Alumnos() {
         ? await studentsApi.updateStudent(editingStudent.id, payload)
         : await studentsApi.createStudent(payload);
       if (!res.success || !res.data) {
-        showToast(res.message || (editingStudent ? 'No se pudo actualizar' : 'No se pudo crear el alumno'), 'error');
+        const details = (res.errors ?? []).filter(Boolean).join('. ');
+        showToast(
+          details ||
+            res.message ||
+            (editingStudent ? 'No se pudo actualizar' : 'No se pudo crear el alumno'),
+          'error'
+        );
         return;
       }
 
@@ -276,7 +289,7 @@ export default function Alumnos() {
 
   const handleExport = () => {
     const exportData = filtered.length > 0 ? filtered : data;
-    exportToCSV(exportData);
+    exportToCSV(exportData, classrooms);
     showToast(`Exportación lista: ${exportData.length} alumnos exportados`, 'success');
   };
 
@@ -386,6 +399,7 @@ export default function Alumnos() {
 
         <StudentTable
           students={filtered}
+          classrooms={classrooms}
           onViewStudent={handleViewStudent}
           onEditStudent={handleEdit}
           onDeleteStudent={handleDelete}
@@ -457,7 +471,7 @@ export default function Alumnos() {
                   <p className="text-3xs text-foreground-500 uppercase tracking-wider">Salón</p>
                   <p className="text-sm text-foreground-800">
                     {(() => {
-                      const salon = getSalonDelAlumno(selectedStudent.level, selectedStudent.grade, selectedStudent.group, selectedStudent.branchName);
+                      const salon = getSalonDelAlumno(selectedStudent.level, selectedStudent.grade, selectedStudent.group, selectedStudent.branchName, classrooms);
                       return salon ? `${salon.nombre} (${salon.tipo})` : 'Sin asignar';
                     })()}
                   </p>
@@ -466,7 +480,7 @@ export default function Alumnos() {
                   <p className="text-3xs text-foreground-500 uppercase tracking-wider">Profesor</p>
                   <p className="text-sm text-foreground-800">
                     {(() => {
-                      const profesor = getProfesorDelAlumno(selectedStudent.level, selectedStudent.grade, selectedStudent.group, selectedStudent.branchName);
+                      const profesor = getProfesorDelAlumno(selectedStudent.level, selectedStudent.grade, selectedStudent.group, selectedStudent.branchName, classrooms);
                       return profesor === 'Sin asignar' ? <span className="text-foreground-400 italic">Sin asignar</span> : profesor;
                     })()}
                   </p>
@@ -489,6 +503,7 @@ export default function Alumnos() {
           onSave={handleSave}
           student={editingStudent}
           saving={saving}
+          classrooms={classrooms}
         />
 
         {/* Delete Confirm */}

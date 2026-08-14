@@ -7,6 +7,7 @@ import Select from '@/components/base/Select';
 import Badge from '@/components/base/Badge';
 import type { Student } from '@/mocks/alumnos';
 import type { Parent } from '@/mocks/padres';
+import type { Salon } from '@/mocks/salones';
 import { getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { isGuid } from '@/api/helpers';
@@ -20,6 +21,7 @@ interface StudentFormModalProps {
   onSave: (data: StudentFormData) => void;
   student?: Student | null;
   saving?: boolean;
+  classrooms?: Salon[];
 }
 
 interface LinkedParentEntry {
@@ -103,6 +105,7 @@ export default function StudentFormModal({
   onSave,
   student,
   saving = false,
+  classrooms = [],
 }: StudentFormModalProps) {
   const { branchId: contextBranchId, branch: contextBranch, branchOptions } = useSchoolContext();
   const [form, setForm] = useState<StudentFormData>(emptyForm);
@@ -176,8 +179,8 @@ export default function StudentFormModal({
 
   const salonPreview = useMemo(() => {
     if (!form.level || !form.grade || !form.group || !form.branchName) return null;
-    return getSalonDelAlumno(form.level, form.grade, form.group, form.branchName);
-  }, [form.level, form.grade, form.group, form.branchName]);
+    return getSalonDelAlumno(form.level, form.grade, form.group, form.branchName, classrooms);
+  }, [form.level, form.grade, form.group, form.branchName, classrooms]);
 
   const handleChange = (field: keyof StudentFormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));

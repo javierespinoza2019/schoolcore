@@ -1,14 +1,35 @@
 import Card from '@/components/base/Card';
-import { revenueData } from '@/mocks/dashboard';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-export default function RevenueChart() {
+export interface RevenuePoint {
+  month: string;
+  ingresos: number;
+  egresos: number;
+  meta?: number;
+}
+
+interface RevenueChartProps {
+  data?: RevenuePoint[];
+}
+
+export default function RevenueChart({ data = [] }: RevenueChartProps) {
+  if (!data.length) {
+    return (
+      <Card padding="md">
+        <h3 className="text-sm font-semibold text-foreground-800 mb-1">Ingresos vs Egresos</h3>
+        <p className="text-xs text-foreground-400 py-10 text-center">
+          Sin serie histórica aún. Los reportes detallados estarán disponibles cuando haya movimientos.
+        </p>
+      </Card>
+    );
+  }
+
   return (
     <Card padding="md">
       <div className="flex items-center justify-between mb-4">
         <div>
           <h3 className="text-sm font-semibold text-foreground-800">Ingresos vs Egresos</h3>
-          <p className="text-2xs text-foreground-500 mt-0.5">Acumulado mensual 2026</p>
+          <p className="text-2xs text-foreground-500 mt-0.5">Acumulado mensual</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
@@ -19,15 +40,11 @@ export default function RevenueChart() {
             <span className="w-2.5 h-2.5 rounded-full bg-secondary-400" />
             <span className="text-2xs text-foreground-500">Egresos</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full border border-dashed border-emerald-400 bg-transparent" />
-            <span className="text-2xs text-foreground-500">Meta</span>
-          </div>
         </div>
       </div>
       <div className="h-[180px]">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={revenueData} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
             <defs>
               <linearGradient id="colorIngresos" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="oklch(var(--primary-400))" stopOpacity={0.2} />
@@ -59,9 +76,8 @@ export default function RevenueChart() {
                 return [formatted, name === 'ingresos' ? 'Ingresos' : name === 'egresos' ? 'Egresos' : 'Meta'];
               }}
             />
-            <Area type="monotone" dataKey="meta" stroke="#10b981" strokeWidth={1.5} strokeDasharray="5 5" fill="none" />
-            <Area type="monotone" dataKey="egresos" stroke="oklch(var(--secondary-400))" strokeWidth={2} fill="url(#colorEgresos)" />
-            <Area type="monotone" dataKey="ingresos" stroke="oklch(var(--primary-500))" strokeWidth={2} fill="url(#colorIngresos)" />
+            <Area type="monotone" dataKey="ingresos" stroke="oklch(var(--primary-400))" fill="url(#colorIngresos)" strokeWidth={2} />
+            <Area type="monotone" dataKey="egresos" stroke="oklch(var(--secondary-400))" fill="url(#colorEgresos)" strokeWidth={2} />
           </AreaChart>
         </ResponsiveContainer>
       </div>

@@ -22,6 +22,7 @@ public interface IPeopleRepository
     Task LinkGuardianAsync(Guid tenantId, Guid studentId, LinkGuardianRequest request, CancellationToken ct = default);
     Task UnlinkGuardianAsync(Guid tenantId, Guid studentId, Guid guardianId, CancellationToken ct = default);
     Task<IReadOnlyList<GuardianDto>> ListGuardiansByStudentAsync(Guid tenantId, Guid studentId, CancellationToken ct = default);
+    Task<IReadOnlyList<GuardianLinkedStudentDto>> ListStudentsByGuardianAsync(Guid tenantId, Guid guardianId, CancellationToken ct = default);
 
     Task<DocumentDto> CreateDocumentAsync(Guid tenantId, DocumentDto doc, CancellationToken ct = default);
     Task<DocumentDto?> GetDocumentAsync(Guid tenantId, Guid id, CancellationToken ct = default);
@@ -202,6 +203,17 @@ public sealed class PeopleRepository : IPeopleRepository
     {
         await using var conn = await OpenAsync(ct);
         var rows = await conn.QueryAsync<GuardianDto>(new CommandDefinition("sp_StudentGuardian_ListByStudent", new { TenantId = tenantId, StudentId = studentId }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    public async Task<IReadOnlyList<GuardianLinkedStudentDto>> ListStudentsByGuardianAsync(Guid tenantId, Guid guardianId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        var rows = await conn.QueryAsync<GuardianLinkedStudentDto>(new CommandDefinition(
+            "sp_StudentGuardian_ListByGuardian",
+            new { TenantId = tenantId, GuardianId = guardianId },
+            commandType: CommandType.StoredProcedure,
+            cancellationToken: ct));
         return rows.ToList();
     }
 

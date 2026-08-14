@@ -173,12 +173,32 @@ export async function apiClient<T>(
     };
   }
 
-  if (!json.errors) json.errors = [];
-  // Propagar status HTTP no-2xx como failure si el body no lo marcó
-  if (!response.ok && json.success !== false) {
-    json.success = false;
-    if (!json.message) json.message = `HTTP ${response.status}`;
+  // Normalizar ProblemDetails de ASP.NET (400 binding) a ApiResponse
+  const raw = json as unknown as Record<string, unknown>;
+  if (!response.ok) {
+    const problemErrors = raw.errors;
+    const flattened: string[] = [];
+    if (problemErrors && typeof problemErrors === 'object' && !Array.isArray(problemErrors)) {
+      for (const [field, msgs] of Object.entries(problemErrors as Record<string, unknown>)) {
+        const list = Array.isArray(msgs) ? msgs.map(String) : [String(msgs)];
+        for (const m of list) flattened.push(field === 'request' ? m : `${field}: ${m}`);
+      }
+    } else if (Array.isArray(problemErrors)) {
+      flattened.push(...problemErrors.map(String));
+    }
+
+    json = {
+      success: false,
+      data: null,
+      message:
+        String(raw.message || raw.title || raw.detail || '').trim() ||
+        `HTTP ${response.status}`,
+      errors: flattened.length ? flattened : Array.isArray(json.errors) ? json.errors : [],
+    };
+  } else {
+    if (!json.errors) json.errors = [];
   }
+
   return json;
 }
 

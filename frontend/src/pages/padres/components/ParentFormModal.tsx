@@ -1,18 +1,22 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import Modal from '@/components/base/Modal';
 import Button from '@/components/base/Button';
 import Input from '@/components/base/Input';
 import Select from '@/components/base/Select';
 import Badge from '@/components/base/Badge';
+import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import type { Parent } from '@/mocks/padres';
-import { students as allStudents } from '@/mocks/alumnos';
 import type { Student } from '@/mocks/alumnos';
+import * as studentsApi from '@/api/studentsApi';
+import { queryKeys } from '@/api/queryKeys';
 
 interface ParentFormModalProps {
   open: boolean;
   onClose: () => void;
   onSave: (data: ParentFormData) => void;
   parent?: Parent | null;
+  saving?: boolean;
 }
 
 export interface ParentFormData {
@@ -27,8 +31,13 @@ export interface ParentFormData {
 }
 
 const emptyForm: ParentFormData = {
-  firstName: '', lastName: '', email: '', phone: '',
-  occupation: '', address: '', status: 'active',
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+  occupation: '',
+  address: '',
+  status: 'active',
   linkedStudentIds: [],
 };
 
@@ -41,7 +50,10 @@ function isValidPhone(phone: string) {
   return digits.length >= 8;
 }
 
-const statusConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'default' | 'primary' | 'accent' }> = {
+const statusConfig: Record<
+  string,
+  { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'default' | 'primary' | 'accent' }
+> = {
   active: { label: 'Activo', variant: 'success' },
   inactive: { label: 'Inactivo', variant: 'warning' },
   suspended: { label: 'Suspendido', variant: 'danger' },
@@ -49,12 +61,30 @@ const statusConfig: Record<string, { label: string; variant: 'success' | 'warnin
   pending: { label: 'Pendiente', variant: 'warning' },
 };
 
-export default function ParentFormModal({ open, onClose, onSave, parent }: ParentFormModalProps) {
+export default function ParentFormModal({
+  open,
+  onClose,
+  onSave,
+  parent,
+  saving = false,
+}: ParentFormModalProps) {
   const [form, setForm] = useState<ParentFormData>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [studentSearch, setStudentSearch] = useState('');
 
+  const studentsQ = useQuery({
+    queryKey: queryKeys.students.list({ pageSize: 200, forParentForm: true }),
+    queryFn: async () => {
+      const res = await studentsApi.listStudents({ pageSize: 200 });
+      return res.data ?? [];
+    },
+    enabled: open,
+  });
+
+  const allStudents: Student[] = studentsQ.data ?? [];
+
   useEffect(() => {
+    if (!open) return;
     if (parent) {
       setForm({
         firstName: parent.firstName,
@@ -64,7 +94,7 @@ export default function ParentFormModal({ open, onClose, onSave, parent }: Paren
         occupation: parent.occupation,
         address: parent.address,
         status: parent.status,
-        linkedStudentIds: parent.childrenIds,
+        linkedStudentIds: [...parent.childrenIds],
       });
     } else {
       setForm(emptyForm);
@@ -75,10 +105,15 @@ export default function ParentFormModal({ open, onClose, onSave, parent }: Paren
 
   const handleChange = (field: keyof ParentFormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
-    if (errors[field]) setErrors((prev) => { const n = { ...prev }; delete n[field]; return n; });
+    if (errors[field]) {
+      setErrors((prev) => {
+        const n = { ...prev };
+        delete n[field];
+        return n;
+      });
+    }
   };
 
-  // --- Student linking logic ---
   const filteredStudents = useMemo(() => {
     let list = allStudents;
     if (studentSearch.trim()) {
@@ -91,7 +126,7 @@ export default function ParentFormModal({ open, onClose, onSave, parent }: Paren
       );
     }
     return list;
-  }, [studentSearch]);
+  }, [studentSearch, allStudents]);
 
   const toggleStudent = (studentId: string) => {
     setForm((prev) => {
@@ -142,69 +177,146 @@ export default function ParentFormModal({ open, onClose, onSave, parent }: Paren
       size="lg"
       footer={
         <>
-          <Button variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" size="sm" icon="ri-save-line" onClick={handleSubmit}>
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            icon="ri-save-line"
+            onClick={handleSubmit}
+            loading={saving}
+          >
             {parent ? 'Guardar Cambios' : 'Registrar Tutor'}
           </Button>
         </>
       }
     >
       <div className="space-y-5">
-        {/* Datos personales */}
         <div>
           <h4 className="text-sm font-semibold text-foreground-800 mb-3 flex items-center gap-2">
             <i className="ri-user-line text-primary-500" />
             Datos Personales
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input label="Nombre(s)" required value={form.firstName} onChange={(e) => handleChange('firstName', e.target.value)} error={errors.firstName} placeholder="Ej. Roberto" />
-            <Input label="Apellidos" required value={form.lastName} onChange={(e) => handleChange('lastName', e.target.value)} error={errors.lastName} placeholder="Ej. Ruiz Gómez" />
-            <Input label="Email" type="email" required value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="tutor@email.com" />
-            <Input label="Teléfono" required value={form.phone} onChange={(e) => handleChange('phone', e.target.value)} error={errors.phone} placeholder="+52 55 0000 0000" />
-            <Input label="Ocupación" required value={form.occupation} onChange={(e) => handleChange('occupation', e.target.value)} error={errors.occupation} placeholder="Ej. Ingeniero Civil" />
+            <Input
+              label="Nombre(s)"
+              required
+              value={form.firstName}
+              onChange={(e) => handleChange('firstName', e.target.value)}
+              error={errors.firstName}
+              placeholder="Ej. Roberto"
+            />
+            <Input
+              label="Apellidos"
+              required
+              value={form.lastName}
+              onChange={(e) => handleChange('lastName', e.target.value)}
+              error={errors.lastName}
+              placeholder="Ej. Ruiz Gómez"
+            />
+            <Input
+              label="Email"
+              type="email"
+              required
+              value={form.email}
+              onChange={(e) => handleChange('email', e.target.value)}
+              error={errors.email}
+              placeholder="tutor@email.com"
+            />
+            <Input
+              label="Teléfono"
+              required
+              value={form.phone}
+              onChange={(e) => handleChange('phone', e.target.value)}
+              error={errors.phone}
+              placeholder="+52 55 0000 0000"
+            />
+            <Input
+              label="Ocupación"
+              required
+              value={form.occupation}
+              onChange={(e) => handleChange('occupation', e.target.value)}
+              error={errors.occupation}
+              placeholder="Ej. Ingeniero Civil"
+            />
             <Select
               label="Estado"
               value={form.status}
               onChange={(e) => handleChange('status', e.target.value)}
-              options={[{ value: 'active', label: 'Activo' }, { value: 'inactive', label: 'Inactivo' }]}
+              options={[
+                { value: 'active', label: 'Activo' },
+                { value: 'inactive', label: 'Inactivo' },
+              ]}
             />
           </div>
           <div className="mt-3">
-            <Input label="Dirección" required value={form.address} onChange={(e) => handleChange('address', e.target.value)} error={errors.address} placeholder="Calle, Colonia, Ciudad" />
+            <Input
+              label="Dirección"
+              required
+              value={form.address}
+              onChange={(e) => handleChange('address', e.target.value)}
+              error={errors.address}
+              placeholder="Calle, Colonia, Ciudad"
+            />
           </div>
         </div>
 
-        {/* Alumnos Vinculados — NEW */}
         <div>
           <h4 className="text-sm font-semibold text-foreground-800 mb-3 flex items-center gap-2">
             <i className="ri-group-line text-accent-500" />
             Alumnos Vinculados
             {form.linkedStudentIds.length > 0 && (
-              <Badge variant="accent" size="sm">{form.linkedStudentIds.length} seleccionado{form.linkedStudentIds.length !== 1 ? 's' : ''}</Badge>
+              <Badge variant="accent" size="sm">
+                {form.linkedStudentIds.length} seleccionado
+                {form.linkedStudentIds.length !== 1 ? 's' : ''}
+              </Badge>
             )}
           </h4>
-          <p className="text-xs text-foreground-500 mb-3">Selecciona los alumnos que estarán a cargo de este tutor</p>
+          <p className="text-xs text-foreground-500 mb-3">
+            Selecciona los alumnos que estarán a cargo de este tutor
+          </p>
 
-          {/* Already selected students */}
           {form.linkedStudentIds.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-3">
               {form.linkedStudentIds.map((sid) => {
                 const student = getStudentById(sid);
-                if (!student) return null;
-                const sCfg = statusConfig[student.status] || statusConfig.inactive;
+                if (!student) {
+                  return (
+                    <div
+                      key={sid}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-50 border border-accent-200 text-xs"
+                    >
+                      <span className="font-medium text-foreground-800">Alumno vinculado</span>
+                      <button
+                        type="button"
+                        onClick={() => toggleStudent(sid)}
+                        className="w-4 h-4 flex items-center justify-center rounded-full text-foreground-400 hover:text-red-500 hover:bg-red-50 transition-colors cursor-pointer"
+                        title="Quitar"
+                      >
+                        <i className="ri-close-line text-3xs" />
+                      </button>
+                    </div>
+                  );
+                }
                 return (
                   <div
                     key={sid}
                     className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-accent-50 border border-accent-200 text-xs"
                   >
-                    <img
+                    <TeacherAvatar
                       src={student.photo}
                       alt={student.fullName}
+                      filenameHint="student-photo"
                       className="w-5 h-5 rounded-full object-cover object-top border border-accent-200"
                     />
-                    <span className="font-medium text-foreground-800 whitespace-nowrap">{student.fullName}</span>
+                    <span className="font-medium text-foreground-800 whitespace-nowrap">
+                      {student.fullName}
+                    </span>
                     <span className="text-foreground-400">·</span>
-                    <span className="text-2xs text-foreground-500">{student.level} {student.grade}°</span>
+                    <span className="text-2xs text-foreground-500">
+                      {student.level} {student.grade}°
+                    </span>
                     <button
                       type="button"
                       onClick={() => toggleStudent(sid)}
@@ -219,7 +331,6 @@ export default function ParentFormModal({ open, onClose, onSave, parent }: Paren
             </div>
           )}
 
-          {/* Search */}
           <Input
             icon="ri-search-line"
             placeholder="Buscar alumno por nombre, email o matrícula..."
@@ -228,9 +339,12 @@ export default function ParentFormModal({ open, onClose, onSave, parent }: Paren
             className="mb-2"
           />
 
-          {/* Student list */}
           <div className="max-h-56 overflow-y-auto border border-secondary-200/70 rounded-lg divide-y divide-secondary-100/70">
-            {filteredStudents.length === 0 ? (
+            {studentsQ.isPending ? (
+              <div className="flex flex-col items-center justify-center py-6 text-foreground-400">
+                <p className="text-sm">Cargando alumnos…</p>
+              </div>
+            ) : filteredStudents.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-6 text-foreground-400">
                 <i className="ri-user-search-line text-xl mb-1.5" />
                 <p className="text-sm">
@@ -253,23 +367,29 @@ export default function ParentFormModal({ open, onClose, onSave, parent }: Paren
                         : 'hover:bg-secondary-50/50 border-l-2 border-transparent'
                     }`}
                   >
-                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
-                      isSelected ? 'bg-accent-500 border-accent-500' : 'border-secondary-300'
-                    }`}>
+                    <div
+                      className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${
+                        isSelected ? 'bg-accent-500 border-accent-500' : 'border-secondary-300'
+                      }`}
+                    >
                       {isSelected && <i className="ri-check-line text-white text-3xs" />}
                     </div>
-                    <img
+                    <TeacherAvatar
                       src={student.photo}
                       alt={student.fullName}
+                      filenameHint="student-photo"
                       className="w-8 h-8 rounded-full object-cover object-top flex-shrink-0 border border-secondary-200 bg-secondary-100"
                     />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-foreground-800">{student.fullName}</p>
                       <p className="text-2xs text-foreground-500">
-                        {student.enrollment} · {student.level} {student.grade}° {student.group} · {student.branchName}
+                        {student.enrollment} · {student.level} {student.grade}° {student.group} ·{' '}
+                        {student.branchName}
                       </p>
                     </div>
-                    <Badge variant={sCfg.variant} size="sm">{sCfg.label}</Badge>
+                    <Badge variant={sCfg.variant} size="sm">
+                      {sCfg.label}
+                    </Badge>
                   </div>
                 );
               })
@@ -277,7 +397,8 @@ export default function ParentFormModal({ open, onClose, onSave, parent }: Paren
           </div>
 
           <p className="text-3xs text-foreground-400 mt-1.5">
-            <i className="ri-information-line" /> Puedes vincular alumnos ahora o después desde la ficha del tutor
+            <i className="ri-information-line" /> Puedes vincular alumnos ahora o después desde la ficha
+            del tutor
           </p>
         </div>
       </div>

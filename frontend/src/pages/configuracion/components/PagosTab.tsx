@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Card from '@/components/base/Card';
 import Button from '@/components/base/Button';
 import Badge from '@/components/base/Badge';
@@ -7,7 +8,10 @@ import Input from '@/components/base/Input';
 import Select from '@/components/base/Select';
 import DeleteConfirmModal from '@/components/base/DeleteConfirmModal';
 import { useToast } from '@/components/base/Toast';
-import { nivelesEducativos, type ConceptoPago, type ConceptoPagoNivel } from '@/mocks/configuracion';
+import type { ConceptoPago, ConceptoPagoNivel } from '@/mocks/configuracion';
+import * as settingsApi from '@/api/settingsApi';
+import { isGuid } from '@/api/helpers';
+import { queryKeys } from '@/api/queryKeys';
 
 interface MetodoPago { id: string; nombre: string; activo: boolean; info: string; }
 
@@ -26,7 +30,6 @@ interface ConceptoFormState {
   montosPorNivel: { nivelId: string; nivelNombre: string; monto: string }[];
 }
 
-const NIVELES_ACTIVOS = nivelesEducativos.filter((n) => n.activo);
 const ABREV_NIVEL: Record<string, string> = { Preescolar: 'Pres', Primaria: 'Prim', Secundaria: 'Sec', Preparatoria: 'Prep', Universidad: 'Univ' };
 
 function formatMXN(n: number): string {
@@ -70,10 +73,34 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
 
-  const toggleMetodo = (id: string) => {
-    onMetodosUpdate(metodos.map((m) => m.id === id ? { ...m, activo: !m.activo } : m));
+  const levelsQ = useQuery({
+    queryKey: queryKeys.settings.catalogs(),
+    queryFn: () => settingsApi.listEducationLevels(),
+  });
+  const nivelesActivos = (levelsQ.data?.data ?? []).filter((n) => n.activo);
+
+  const invalidatePagos = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.settings.paymentMethods() });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.settings.paymentConcepts() });
+  };
+
+  const toggleMetodo = async (id: string) => {
+    const met = metodos.find((m) => m.id === id);
+    if (!met || !isGuid(id)) {
+      showToast('Método inválido o aún no persistido', 'error');
+      return;
+    }
+    const next = !met.activo;
+    const res = await settingsApi.updatePaymentMethod(id, { ...met, activo: next });
+    if (!res.success) {
+      showToast(res.message || 'No se pudo actualizar el método', 'error');
+      return;
+    }
+    onMetodosUpdate(metodos.map((m) => (m.id === id ? { ...m, activo: next } : m)));
     showToast('Método de pago actualizado', 'success');
+    invalidatePagos();
   };
 
   const openEditMetodo = (m: MetodoPago) => { setEditingMetodo(m); setMetodoForm({ nombre: m.nombre, info: m.info }); setErrors({}); setModalMetodo(true); };
@@ -82,28 +109,53 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
   const openEditConcepto = (c: ConceptoPago) => { setEditingConcepto(c); setConceptoForm(conceptoToForm(c)); setErrors({}); setModalConcepto(true); };
   const openCreateConcepto = () => { setEditingConcepto(null); setConceptoForm(emptyConceptoForm()); setErrors({}); setModalConcepto(true); };
 
-  const handleSaveMetodo = () => {
+  const handleSaveMetodo = async () => {
     const errs: Record<string, string> = {};
     if (!metodoForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del método';
     if (!metodoForm.info.trim()) errs.info = 'Ingresa la información del método';
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
     setSaving(true);
-    setTimeout(() => {
+    try {
       if (editingMetodo) {
-        onMetodosUpdate(metodos.map((m) => m.id === editingMetodo.id ? { ...m, nombre: metodoForm.nombre, info: metodoForm.info } : m));
+        if (!isGuid(editingMetodo.id)) {
+          showToast('Método inválido', 'error');
+          return;
+        }
+        const res = await settingsApi.updatePaymentMethod(editingMetodo.id, {
+          nombre: metodoForm.nombre.trim(),
+          info: metodoForm.info.trim(),
+          activo: editingMetodo.activo,
+        });
+        if (!res.success || !res.data) {
+          showToast(res.message || 'No se pudo actualizar', 'error');
+          return;
+        }
+        onMetodosUpdate(metodos.map((m) => (m.id === editingMetodo.id ? res.data! : m)));
         showToast('Método de pago actualizado', 'success');
       } else {
-        const nuevo: MetodoPago = { id: `met-${Date.now()}`, nombre: metodoForm.nombre, info: metodoForm.info, activo: true };
-        onMetodosUpdate([...metodos, nuevo]);
+        const res = await settingsApi.createPaymentMethod({
+          nombre: metodoForm.nombre.trim(),
+          info: metodoForm.info.trim(),
+          activo: true,
+        });
+        if (!res.success || !res.data) {
+          showToast(res.message || 'No se pudo crear', 'error');
+          return;
+        }
+        onMetodosUpdate([...metodos, res.data]);
         showToast('Método de pago agregado', 'success');
       }
-      setSaving(false);
       setModalMetodo(false);
-    }, 600);
+      invalidatePagos();
+    } catch {
+      showToast('Error de red al guardar método', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleSaveConcepto = () => {
+  const handleSaveConcepto = async () => {
     const errs: Record<string, string> = {};
     if (!conceptoForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del concepto';
     if (!conceptoForm.tipo) errs.tipo = 'Selecciona el tipo';
@@ -114,16 +166,14 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
           errs[`nivel-${n.nivelId}`] = `Ingresa el monto para ${n.nivelNombre}`;
         }
       });
-    } else {
-      if (!conceptoForm.montoBase.trim() || parseFloat(conceptoForm.montoBase) <= 0) {
-        errs.montoBase = 'Ingresa un monto válido';
-      }
+    } else if (!conceptoForm.montoBase.trim() || parseFloat(conceptoForm.montoBase) <= 0) {
+      errs.montoBase = 'Ingresa un monto válido';
     }
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
     setSaving(true);
-    setTimeout(() => {
+    try {
       let montoFinal: number;
       let montosPorNivel: ConceptoPagoNivel[] = [];
 
@@ -140,45 +190,102 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
       }
 
       const datos = {
-        nombre: conceptoForm.nombre,
+        nombre: conceptoForm.nombre.trim(),
         monto: montoFinal,
         tipo: conceptoForm.tipo,
         diferenciadoPorNivel: conceptoForm.diferenciadoPorNivel,
         montosPorNivel,
+        activo: true,
       };
 
+      let conceptId = editingConcepto?.id;
       if (editingConcepto) {
-        onConceptosUpdate(conceptos.map((c) => c.id === editingConcepto.id ? { ...c, ...datos } : c));
+        if (!isGuid(editingConcepto.id)) {
+          showToast('Concepto inválido', 'error');
+          return;
+        }
+        const res = await settingsApi.updatePaymentConcept(editingConcepto.id, {
+          ...datos,
+          activo: editingConcepto.activo,
+        });
+        if (!res.success || !res.data) {
+          showToast(res.message || 'No se pudo actualizar', 'error');
+          return;
+        }
+        conceptId = res.data.id;
+        onConceptosUpdate(
+          conceptos.map((c) =>
+            c.id === editingConcepto.id ? { ...res.data!, montosPorNivel } : c
+          )
+        );
         showToast('Concepto de pago actualizado', 'success');
       } else {
-        const nuevo: ConceptoPago = { id: `conc-${Date.now()}`, activo: true, ...datos };
-        onConceptosUpdate([...conceptos, nuevo]);
+        const res = await settingsApi.createPaymentConcept(datos);
+        if (!res.success || !res.data) {
+          showToast(res.message || 'No se pudo crear', 'error');
+          return;
+        }
+        conceptId = res.data.id;
+        onConceptosUpdate([...conceptos, { ...res.data, montosPorNivel }]);
         showToast('Concepto de pago agregado', 'success');
       }
-      setSaving(false);
+
+      if (conceptId && datos.diferenciadoPorNivel && montosPorNivel.length > 0) {
+        const amounts = montosPorNivel
+          .filter((n) => isGuid(n.nivelId))
+          .map((n) => ({ educationLevelId: n.nivelId, amount: n.monto }));
+        if (amounts.length) {
+          const amt = await settingsApi.setPaymentConceptAmounts(conceptId, amounts);
+          if (!amt.success) {
+            showToast(amt.message || 'Concepto guardado, pero fallaron montos por nivel', 'error');
+          }
+        }
+      }
+
       setModalConcepto(false);
-    }, 600);
+      invalidatePagos();
+    } catch {
+      showToast('Error de red al guardar concepto', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
+    if (!isGuid(deleteTarget.item.id)) {
+      showToast('Registro inválido', 'error');
+      return;
+    }
     setDeleting(true);
     const name = deleteTarget.item.nombre;
-    setTimeout(() => {
+    try {
+      const res =
+        deleteTarget.type === 'metodo'
+          ? await settingsApi.deletePaymentMethod(deleteTarget.item.id)
+          : await settingsApi.deletePaymentConcept(deleteTarget.item.id);
+      if (!res.success) {
+        showToast(res.message || 'No se pudo eliminar', 'error');
+        return;
+      }
       if (deleteTarget.type === 'metodo') {
         onMetodosUpdate(metodos.filter((m) => m.id !== deleteTarget.item.id));
       } else {
         onConceptosUpdate(conceptos.filter((c) => c.id !== deleteTarget.item.id));
       }
       showToast(`"${name}" eliminado`, 'success');
-      setDeleting(false);
       setDeleteTarget(null);
-    }, 600);
+      invalidatePagos();
+    } catch {
+      showToast('Error de red al eliminar', 'error');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const toggleDiferenciado = (on: boolean) => {
     if (on) {
-      const montosPorNivel = NIVELES_ACTIVOS.map((n) => ({
+      const montosPorNivel = nivelesActivos.map((n) => ({
         nivelId: n.id,
         nivelNombre: n.nombre,
         monto: '',

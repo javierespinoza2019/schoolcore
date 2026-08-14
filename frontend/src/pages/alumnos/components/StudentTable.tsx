@@ -5,11 +5,13 @@ import Pagination from '@/components/base/Pagination';
 import Badge from '@/components/base/Badge';
 import Button from '@/components/base/Button';
 import type { Student } from '@/mocks/alumnos';
+import type { Salon } from '@/mocks/salones';
 import { getProfesorDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
 
 interface StudentTableProps {
   students: Student[];
+  classrooms?: Salon[];
   onViewStudent: (student: Student) => void;
   onEditStudent?: (student: Student) => void;
   onDeleteStudent?: (student: Student) => void;
@@ -34,7 +36,7 @@ interface StudentWithProfesor extends Student {
   _profesorName: string;
 }
 
-export default function StudentTable({ students, onViewStudent, onEditStudent, onDeleteStudent, onBulkAction, pageSize = 10 }: StudentTableProps) {
+export default function StudentTable({ students, classrooms = [], onViewStudent, onEditStudent, onDeleteStudent, onBulkAction, pageSize = 10 }: StudentTableProps) {
   const [sortKey, setSortKey] = useState('fullName');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [currentPage, setCurrentPage] = useState(1);
@@ -44,9 +46,9 @@ export default function StudentTable({ students, onViewStudent, onEditStudent, o
     () =>
       students.map((s) => ({
         ...s,
-        _profesorName: getProfesorDelAlumno(s.level, s.grade, s.group, s.branchName),
+        _profesorName: getProfesorDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms),
       })),
-    [students]
+    [students, classrooms]
   );
 
   const handleSort = (key: string) => {

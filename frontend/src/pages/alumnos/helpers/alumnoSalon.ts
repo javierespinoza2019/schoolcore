@@ -1,4 +1,4 @@
-import { salonesData } from '@/mocks/salones';
+import type { Salon } from '@/mocks/salones';
 
 function normalizeGrade(grade: string): string {
   return grade
@@ -11,30 +11,25 @@ function normalizeGrade(grade: string): string {
     .trim();
 }
 
-export function getProfesorDelAlumno(
+function matchSalon(
+  classrooms: Salon[],
   level: string,
   grade: string,
   group: string,
   branchName: string
-): string {
+): Salon | null {
   const normGrade = normalizeGrade(grade);
-
-  // 1. Buscar salón regular exacto
-  const salonRegular = salonesData.find(
+  const salonRegular = classrooms.find(
     (s) =>
       s.tipo === 'Regular' &&
       s.nivel === level &&
       normalizeGrade(s.grado) === normGrade &&
       s.grupo === group &&
-      s.sucursal === branchName
+      (s.sucursal === branchName || !branchName)
   );
+  if (salonRegular) return salonRegular;
 
-  if (salonRegular && salonRegular.profesorAsignado && salonRegular.profesorAsignado !== 'Sin asignar') {
-    return salonRegular.profesorAsignado;
-  }
-
-  // 2. Buscar en gruposAsignados de salones especiales
-  for (const salon of salonesData) {
+  for (const salon of classrooms) {
     if (!salon.gruposAsignados || salon.gruposAsignados.length === 0) continue;
     const match = salon.gruposAsignados.find(
       (g) =>
@@ -42,11 +37,37 @@ export function getProfesorDelAlumno(
         normalizeGrade(g.grado) === normGrade &&
         g.grupo === group
     );
-    if (match && match.profesor && match.profesor !== 'Sin asignar') {
-      return match.profesor;
-    }
+    if (match) return salon;
   }
+  return null;
+}
 
+/**
+ * Resuelve profesor/salón a partir de classrooms reales (API).
+ * Sin lista o sin match → "Sin asignar" / null (no usa mocks).
+ */
+export function getProfesorDelAlumno(
+  level: string,
+  grade: string,
+  group: string,
+  branchName: string,
+  classrooms: Salon[] = []
+): string {
+  if (!classrooms.length) return 'Sin asignar';
+  const salon = matchSalon(classrooms, level, grade, group, branchName);
+  if (!salon) return 'Sin asignar';
+
+  if (salon.profesorAsignado && salon.profesorAsignado !== 'Sin asignar') {
+    return salon.profesorAsignado;
+  }
+  const normGrade = normalizeGrade(grade);
+  const grupo = salon.gruposAsignados?.find(
+    (g) =>
+      g.nivel === level &&
+      normalizeGrade(g.grado) === normGrade &&
+      g.grupo === group
+  );
+  if (grupo?.profesor && grupo.profesor !== 'Sin asignar') return grupo.profesor;
   return 'Sin asignar';
 }
 
@@ -54,45 +75,26 @@ export function getSalonDelAlumno(
   level: string,
   grade: string,
   group: string,
-  branchName: string
+  branchName: string,
+  classrooms: Salon[] = []
 ): { nombre: string; profesor: string; tipo: string } | null {
+  if (!classrooms.length) return null;
+  const salon = matchSalon(classrooms, level, grade, group, branchName);
+  if (!salon) return null;
+
   const normGrade = normalizeGrade(grade);
-
-  // 1. Salón regular
-  const salonRegular = salonesData.find(
-    (s) =>
-      s.tipo === 'Regular' &&
-      s.nivel === level &&
-      normalizeGrade(s.grado) === normGrade &&
-      s.grupo === group &&
-      s.sucursal === branchName
+  const grupo = salon.gruposAsignados?.find(
+    (g) =>
+      g.nivel === level &&
+      normalizeGrade(g.grado) === normGrade &&
+      g.grupo === group
   );
-
-  if (salonRegular) {
-    return {
-      nombre: salonRegular.nombre,
-      profesor: salonRegular.profesorAsignado || 'Sin asignar',
-      tipo: salonRegular.tipo,
-    };
-  }
-
-  // 2. Grupo asignado en salón especial
-  for (const salon of salonesData) {
-    if (!salon.gruposAsignados || salon.gruposAsignados.length === 0) continue;
-    const match = salon.gruposAsignados.find(
-      (g) =>
-        g.nivel === level &&
-        normalizeGrade(g.grado) === normGrade &&
-        g.grupo === group
-    );
-    if (match) {
-      return {
-        nombre: salon.nombre,
-        profesor: match.profesor || 'Sin asignar',
-        tipo: salon.tipo,
-      };
-    }
-  }
-
-  return null;
+  return {
+    nombre: salon.nombre,
+    profesor:
+      (grupo?.profesor && grupo.profesor !== 'Sin asignar'
+        ? grupo.profesor
+        : salon.profesorAsignado) || 'Sin asignar',
+    tipo: salon.tipo,
+  };
 }

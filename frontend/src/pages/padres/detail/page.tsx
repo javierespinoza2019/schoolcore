@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import MainLayout from '@/components/feature/MainLayout';
 import Card from '@/components/base/Card';
 import Badge from '@/components/base/Badge';
@@ -8,37 +9,95 @@ import ParentFormModal from '@/pages/padres/components/ParentFormModal';
 import type { ParentFormData } from '@/pages/padres/components/ParentFormModal';
 import VincularAlumnoModal from '@/pages/padres/components/VincularAlumnoModal';
 import DeleteConfirmModal from '@/components/base/DeleteConfirmModal';
+import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import { useToast } from '@/components/base/Toast';
-import { parents as initialParents } from '@/mocks/padres';
-import { students as initialStudents } from '@/mocks/alumnos';
 import type { Parent } from '@/mocks/padres';
+import type { Student } from '@/mocks/alumnos';
+import * as parentsApi from '@/api/parentsApi';
+import { isGuid } from '@/api/helpers';
+import { queryKeys } from '@/api/queryKeys';
 
 export default function PadreDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { showToast } = useToast();
-
-  const [parentData, setParentData] = useState<Parent[]>(initialParents);
-  const [studentData, setStudentData] = useState(initialStudents);
-
-  const parent: Parent | undefined = parentData.find((p) => p.id === id);
+  const queryClient = useQueryClient();
 
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [vincularOpen, setVincularOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [unlinkingId, setUnlinkingId] = useState<string | null>(null);
 
-  const linkedStudents = parent
-    ? studentData.filter((s) => parent.childrenIds.includes(s.id))
-    : [];
+  const parentQ = useQuery({
+    queryKey: queryKeys.parents.detail(id || ''),
+    queryFn: async () => {
+      const res = await parentsApi.getParent(id!);
+      if (!res.success || !res.data) throw new Error(res.message || 'Tutor no encontrado');
+      return res.data;
+    },
+    enabled: Boolean(id) && isGuid(id!),
+  });
 
-  const statusConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'default' | 'primary' | 'accent' }> = {
+  const studentsQ = useQuery({
+    queryKey: [...queryKeys.parents.detail(id || ''), 'students'],
+    queryFn: async () => {
+      const res = await parentsApi.listParentStudents(id!);
+      if (!res.success || !res.data) throw new Error(res.message || 'No se pudieron cargar alumnos');
+      return res.data;
+    },
+    enabled: Boolean(id) && isGuid(id!) && parentQ.isSuccess,
+  });
+
+  const parent: Parent | null = parentQ.data ?? null;
+  const linkedStudents: Student[] = studentsQ.data ?? [];
+
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.parents.all });
+    if (id) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.parents.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.students.all });
+    }
+  };
+
+  const statusConfig: Record<
+    string,
+    { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'default' | 'primary' | 'accent' }
+  > = {
     active: { label: 'Activo', variant: 'success' },
     inactive: { label: 'Inactivo', variant: 'warning' },
     graduated: { label: 'Graduado', variant: 'primary' },
     suspended: { label: 'Suspendido', variant: 'danger' },
     pending: { label: 'Pendiente', variant: 'warning' },
   };
+
+  if (!id || !isGuid(id)) {
+    return (
+      <MainLayout>
+        <div className="max-w-[1440px] mx-auto flex flex-col items-center justify-center py-20">
+          <div className="w-20 h-20 rounded-full bg-secondary-100 flex items-center justify-center mb-4">
+            <i className="ri-user-search-line text-3xl text-secondary-400" />
+          </div>
+          <h2 className="text-lg font-bold text-foreground-900 mb-1">Tutor no encontrado</h2>
+          <p className="text-sm text-foreground-500 mb-4">El identificador del tutor no es válido.</p>
+          <Button variant="primary" icon="ri-arrow-left-line" onClick={() => navigate('/padres')}>
+            Volver al listado
+          </Button>
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (parentQ.isPending) {
+    return (
+      <MainLayout>
+        <div className="max-w-[1440px] mx-auto flex flex-col items-center justify-center py-20 text-sm text-foreground-500">
+          Cargando tutor…
+        </div>
+      </MainLayout>
+    );
+  }
 
   if (!parent) {
     return (
@@ -57,76 +116,106 @@ export default function PadreDetail() {
     );
   }
 
-  const handleEditSave = (formData: ParentFormData) => {
-    setParentData((prev) =>
-      prev.map((p) =>
-        p.id === parent.id
-          ? {
-              ...p,
-              firstName: formData.firstName,
-              lastName: formData.lastName,
-              fullName: `${formData.firstName} ${formData.lastName}`,
-              email: formData.email,
-              phone: formData.phone,
-              occupation: formData.occupation,
-              address: formData.address,
-              status: formData.status as 'active' | 'inactive',
-            }
-          : p
-      )
-    );
-    showToast('Tutor actualizado correctamente', 'success');
-    setFormOpen(false);
+  const handleEditSave = async (formData: ParentFormData) => {
+    setSaving(true);
+    try {
+      const res = await parentsApi.updateParent(parent.id, {
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim(),
+        occupation: formData.occupation.trim(),
+        address: formData.address.trim(),
+        status: formData.status as Parent['status'],
+      });
+      if (!res.success) {
+        showToast(res.message || 'No se pudo actualizar', 'error');
+        return;
+      }
+
+      const currentIds = new Set(linkedStudents.map((s) => s.id));
+      const nextIds = new Set(formData.linkedStudentIds.filter(isGuid));
+      for (const studentId of nextIds) {
+        if (!currentIds.has(studentId)) {
+          await parentsApi.linkStudent(parent.id, studentId);
+        }
+      }
+      for (const studentId of currentIds) {
+        if (!nextIds.has(studentId)) {
+          await parentsApi.unlinkStudent(parent.id, studentId);
+        }
+      }
+
+      showToast('Tutor actualizado correctamente', 'success');
+      setFormOpen(false);
+      invalidate();
+    } catch {
+      showToast('Error de red al actualizar tutor', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     setIsDeleting(true);
-    setTimeout(() => {
-      setParentData((prev) => prev.filter((p) => p.id !== parent.id));
+    try {
+      const res = await parentsApi.deleteParent(parent.id);
+      if (!res.success) {
+        showToast(res.message || 'No se pudo eliminar', 'error');
+        return;
+      }
       showToast(`Tutor "${parent.fullName}" eliminado correctamente`, 'success');
       setDeleteOpen(false);
-      setIsDeleting(false);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.parents.all });
       navigate('/padres');
-    }, 400);
+    } catch {
+      showToast('Error de red al eliminar', 'error');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  const handleVincularAlumno = (alumnoId: string) => {
-    const alumno = studentData.find((s) => s.id === alumnoId);
-    if (!alumno) return;
-
-    setParentData((prev) =>
-      prev.map((p) =>
-        p.id === parent.id
-          ? {
-              ...p,
-              childrenCount: p.childrenCount + 1,
-              childrenIds: [...p.childrenIds, alumnoId],
-              childrenNames: [...p.childrenNames, alumno.fullName],
-            }
-          : p
-      )
-    );
-    showToast(`Alumno "${alumno.fullName}" vinculado correctamente`, 'success');
+  const handleVincularAlumno = async (alumnoId: string) => {
+    if (!isGuid(alumnoId)) {
+      showToast('Alumno inválido', 'error');
+      return;
+    }
+    const res = await parentsApi.linkStudent(parent.id, alumnoId);
+    if (!res.success) {
+      showToast(res.message || 'No se pudo vincular el alumno', 'error');
+      return;
+    }
+    showToast('Alumno vinculado correctamente', 'success');
     setVincularOpen(false);
+    invalidate();
   };
 
-  const handleDesvincular = (alumnoId: string) => {
-    const alumno = studentData.find((s) => s.id === alumnoId);
-    if (!alumno) return;
+  const handleDesvincular = async (alumnoId: string) => {
+    const alumno = linkedStudents.find((s) => s.id === alumnoId);
+    setUnlinkingId(alumnoId);
+    try {
+      const res = await parentsApi.unlinkStudent(parent.id, alumnoId);
+      if (!res.success) {
+        showToast(res.message || 'No se pudo desvincular', 'error');
+        return;
+      }
+      showToast(
+        alumno ? `Alumno "${alumno.fullName}" desvinculado del tutor` : 'Alumno desvinculado',
+        'success'
+      );
+      invalidate();
+    } catch {
+      showToast('Error de red al desvincular', 'error');
+    } finally {
+      setUnlinkingId(null);
+    }
+  };
 
-    setParentData((prev) =>
-      prev.map((p) =>
-        p.id === parent.id
-          ? {
-              ...p,
-              childrenCount: Math.max(0, p.childrenCount - 1),
-              childrenIds: p.childrenIds.filter((cid) => cid !== alumnoId),
-              childrenNames: p.childrenNames.filter((cn) => cn !== alumno.fullName),
-            }
-          : p
-      )
-    );
-    showToast(`Alumno "${alumno.fullName}" desvinculado del tutor`, 'success');
+  const parentForForm: Parent = {
+    ...parent,
+    childrenIds: linkedStudents.map((s) => s.id),
+    childrenNames: linkedStudents.map((s) => s.fullName),
+    childrenCount: linkedStudents.length,
   };
 
   return (
@@ -150,7 +239,8 @@ export default function PadreDetail() {
               <div className="flex flex-col items-center text-center mb-5">
                 <div className="w-20 h-20 rounded-full bg-primary-100 flex items-center justify-center mb-3">
                   <span className="text-xl font-bold text-primary-600">
-                    {parent.firstName[0]}{parent.lastName[0]}
+                    {parent.firstName[0]}
+                    {parent.lastName[0]}
                   </span>
                 </div>
                 <h1 className="text-base font-bold text-foreground-900">{parent.fullName}</h1>
@@ -164,35 +254,42 @@ export default function PadreDetail() {
                   <i className="ri-mail-line text-sm text-foreground-400 mt-0.5" />
                   <div>
                     <p className="text-3xs text-foreground-500 uppercase tracking-wider">Email</p>
-                    <p className="text-sm text-foreground-800">{parent.email}</p>
+                    <p className="text-sm text-foreground-800">{parent.email || '—'}</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <i className="ri-phone-line text-sm text-foreground-400 mt-0.5" />
                   <div>
                     <p className="text-3xs text-foreground-500 uppercase tracking-wider">Teléfono</p>
-                    <p className="text-sm text-foreground-800">{parent.phone}</p>
+                    <p className="text-sm text-foreground-800">{parent.phone || '—'}</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <i className="ri-briefcase-line text-sm text-foreground-400 mt-0.5" />
                   <div>
                     <p className="text-3xs text-foreground-500 uppercase tracking-wider">Ocupación</p>
-                    <p className="text-sm text-foreground-800">{parent.occupation}</p>
+                    <p className="text-sm text-foreground-800">{parent.occupation || '—'}</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <i className="ri-map-pin-line text-sm text-foreground-400 mt-0.5" />
                   <div>
                     <p className="text-3xs text-foreground-500 uppercase tracking-wider">Dirección</p>
-                    <p className="text-sm text-foreground-800">{parent.address}</p>
+                    <p className="text-sm text-foreground-800">{parent.address || '—'}</p>
                   </div>
                 </div>
                 <div className="flex items-start gap-2">
                   <i className="ri-calendar-line text-sm text-foreground-400 mt-0.5" />
                   <div>
                     <p className="text-3xs text-foreground-500 uppercase tracking-wider">Registrado desde</p>
-                    <p className="text-sm text-foreground-800">{parent.createdAt}</p>
+                    <p className="text-sm text-foreground-800">{parent.createdAt || '—'}</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <i className="ri-user-star-line text-sm text-foreground-400 mt-0.5" />
+                  <div>
+                    <p className="text-3xs text-foreground-500 uppercase tracking-wider">Hijos vinculados</p>
+                    <p className="text-sm text-foreground-800">{parent.childrenCount ?? linkedStudents.length}</p>
                   </div>
                 </div>
               </div>
@@ -216,7 +313,7 @@ export default function PadreDetail() {
                     <i className="ri-user-star-line text-sm text-primary-600" />
                   </div>
                   <h3 className="text-sm font-semibold text-foreground-800">
-                    Alumnos Vinculados ({linkedStudents.length})
+                    Alumnos Vinculados ({studentsQ.isPending ? '…' : linkedStudents.length})
                   </h3>
                 </div>
                 <Button variant="primary" size="sm" icon="ri-link" onClick={() => setVincularOpen(true)}>
@@ -224,7 +321,9 @@ export default function PadreDetail() {
                 </Button>
               </div>
 
-              {linkedStudents.length > 0 ? (
+              {studentsQ.isPending ? (
+                <p className="text-sm text-foreground-500 py-8 text-center">Cargando alumnos…</p>
+              ) : linkedStudents.length > 0 ? (
                 <div className="space-y-3">
                   {linkedStudents.map((student) => {
                     const sCfg = statusConfig[student.status] || statusConfig.inactive;
@@ -238,18 +337,31 @@ export default function PadreDetail() {
                           className="flex items-center gap-4 flex-1 min-w-0 cursor-pointer"
                         >
                           <div className="w-10 h-10 rounded-full overflow-hidden flex-shrink-0 bg-secondary-100">
-                            <img src={student.photo} alt={student.fullName} className="w-full h-full object-cover object-top" />
+                            <TeacherAvatar
+                              src={student.photo}
+                              alt={student.fullName}
+                              filenameHint="student-photo"
+                              className="w-full h-full object-cover object-top"
+                            />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm font-medium text-foreground-800">{student.fullName}</p>
-                            <p className="text-2xs text-foreground-500">{student.level} {student.grade}° {student.group} · {student.branchName}</p>
+                            <p className="text-2xs text-foreground-500">
+                              {student.level} {student.grade}° {student.group} · {student.branchName || '—'}
+                            </p>
                           </div>
-                          <Badge variant={sCfg.variant} size="sm">{sCfg.label}</Badge>
+                          <Badge variant={sCfg.variant} size="sm">
+                            {sCfg.label}
+                          </Badge>
                           <i className="ri-arrow-right-s-line text-foreground-300" />
                         </div>
                         <button
-                          onClick={(e) => { e.stopPropagation(); handleDesvincular(student.id); }}
-                          className="w-7 h-7 flex items-center justify-center rounded-md text-foreground-300 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleDesvincular(student.id);
+                          }}
+                          disabled={unlinkingId === student.id}
+                          className="w-7 h-7 flex items-center justify-center rounded-md text-foreground-300 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer opacity-0 group-hover:opacity-100 disabled:opacity-50"
                           title="Desvincular alumno"
                         >
                           <i className="ri-link-unlink text-sm" />
@@ -262,7 +374,9 @@ export default function PadreDetail() {
                 <div className="flex flex-col items-center justify-center py-10 text-foreground-400 border-2 border-dashed border-secondary-200 rounded-lg">
                   <i className="ri-user-search-line text-2xl mb-2" />
                   <p className="text-sm font-medium text-foreground-500">Sin alumnos vinculados</p>
-                  <p className="text-xs text-foreground-400 mt-1 mb-3">Vincula un alumno para relacionarlo con este tutor</p>
+                  <p className="text-xs text-foreground-400 mt-1 mb-3">
+                    Vincula un alumno para relacionarlo con este tutor
+                  </p>
                   <Button variant="outline" size="sm" icon="ri-link" onClick={() => setVincularOpen(true)}>
                     Vincular Alumno
                   </Button>
@@ -275,22 +389,23 @@ export default function PadreDetail() {
         <ParentFormModal
           open={formOpen}
           onClose={() => setFormOpen(false)}
-          onSave={handleEditSave}
-          parent={parent}
+          onSave={(data) => void handleEditSave(data)}
+          parent={parentForForm}
+          saving={saving}
         />
 
         <VincularAlumnoModal
           open={vincularOpen}
           onClose={() => setVincularOpen(false)}
-          onVincular={handleVincularAlumno}
+          onVincular={(alumnoId) => void handleVincularAlumno(alumnoId)}
           parentName={parent.fullName}
-          alreadyLinkedIds={parent.childrenIds}
+          alreadyLinkedIds={linkedStudents.map((s) => s.id)}
         />
 
         <DeleteConfirmModal
           open={deleteOpen}
           onClose={() => setDeleteOpen(false)}
-          onConfirm={handleDelete}
+          onConfirm={() => void handleDelete()}
           title="Eliminar Tutor"
           message="¿Estás seguro de que deseas eliminar a este tutor? Esta acción no se puede deshacer y los alumnos vinculados quedarán sin tutor asociado."
           itemName={parent.fullName}

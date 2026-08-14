@@ -36,6 +36,9 @@ export const queryKeys = {
     summary: (params: Record<string, unknown>) => ['finance', 'summary', params] as const,
     payments: (params: Record<string, unknown>) => ['finance', 'payments', params] as const,
     charges: (params: Record<string, unknown>) => ['finance', 'charges', params] as const,
+    expenses: (params: Record<string, unknown>) => ['finance', 'expenses', params] as const,
+    revenue: (params: Record<string, unknown>) => ['finance', 'revenue', params] as const,
+    concepts: (params: Record<string, unknown>) => ['finance', 'concepts', params] as const,
     accountStatement: (studentId: string) => ['finance', 'account-statement', studentId] as const,
   },
   cash: {

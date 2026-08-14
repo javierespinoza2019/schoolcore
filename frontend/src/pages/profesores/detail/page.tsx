@@ -15,8 +15,11 @@ import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import * as teachersApi from '@/api/teachersApi';
 import { isGuid } from '@/api/helpers';
 import { queryKeys } from '@/api/queryKeys';
-import { salonesData, Salon } from '@/mocks/salones';
-import { students as initialStudents, Student } from '@/mocks/alumnos';
+import type { Salon } from '@/mocks/salones';
+import type { Student } from '@/mocks/alumnos';
+import * as classroomsApi from '@/api/classroomsApi';
+import * as studentsApi from '@/api/studentsApi';
+import { useApiResource } from '@/hooks/useApiResource';
 
 function formatCurrency(amount: number) {
   return `$${amount.toLocaleString('es-MX')} MXN`;
@@ -50,14 +53,19 @@ interface GrupoConAlumnos {
   alumnos: Student[];
 }
 
-function getGruposYAlumnos(nombreProfesor: string): GrupoConAlumnos[] {
-  const salonesDelProfe = salonesData.filter((s) => s.profesorAsignado === nombreProfesor);
+function getGruposYAlumnos(
+  nombreProfesor: string,
+  classrooms: Salon[],
+  studentsList: Student[]
+): GrupoConAlumnos[] {
+  const salonesDelProfe = classrooms.filter((s) => s.profesorAsignado === nombreProfesor);
   return salonesDelProfe.map((salon) => {
-    const alumnosDelGrupo = initialStudents.filter(
+    const alumnosDelGrupo = studentsList.filter(
       (alumno) =>
         alumno.level === salon.nivel &&
         alumno.group === salon.grupo &&
-        alumno.branchName === salon.sucursal &&
+        (alumno.branchName === salon.sucursal ||
+          (salon.branchId && alumno.branchId === salon.branchId)) &&
         alumno.status === 'active'
     );
     return { salon, alumnos: alumnosDelGrupo };
@@ -92,14 +100,23 @@ export default function ProfesorDetail() {
   });
   const profesor = teacherQ.data ?? null;
 
+  const classroomsQ = useApiResource({
+    queryKey: queryKeys.classrooms.list({ for: 'profesor-detail' }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+  });
+  const studentsQ = useApiResource({
+    queryKey: queryKeys.students.list({ for: 'profesor-detail' }),
+    queryFn: () => studentsApi.listStudents({ pageSize: 500 }),
+  });
+
   const [formOpen, setFormOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const gruposConAlumnos = useMemo(() => {
     if (!profesor) return [];
-    return getGruposYAlumnos(profesor.nombre);
-  }, [profesor]);
+    return getGruposYAlumnos(profesor.nombre, classroomsQ.data ?? [], studentsQ.data ?? []);
+  }, [profesor, classroomsQ.data, studentsQ.data]);
 
   const totalAlumnos = useMemo(
     () => gruposConAlumnos.reduce((acc, g) => acc + g.alumnos.length, 0),

@@ -15,13 +15,16 @@ import SalonFormModal from '@/pages/salones/components/SalonFormModal';
 import type { SalonFormData } from '@/pages/salones/components/SalonFormModal';
 import DeleteConfirmModal from '@/components/base/DeleteConfirmModal';
 import { useToast } from '@/components/base/Toast';
-import { Salon } from '@/mocks/salones';
-import { profesoresData, Profesor } from '@/mocks/profesores';
-import { students, Student } from '@/mocks/alumnos';
+import { Salon, SalonGrupo } from '@/mocks/salones';
+import type { Profesor } from '@/mocks/profesores';
+import type { Student } from '@/mocks/alumnos';
+import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as classroomsApi from '@/api/classroomsApi';
+import * as studentsApi from '@/api/studentsApi';
+import * as teachersApi from '@/api/teachersApi';
 import { isGuid } from '@/api/helpers';
 
 function getEstadoBadge(estado: string) {
@@ -58,16 +61,51 @@ function getOcupacionBar(ocupados: number, capacidad: number) {
   );
 }
 
-function getProfesorInfo(nombreProfesor: string): Profesor | undefined {
-  return profesoresData.find((p) => p.nombre === nombreProfesor);
+/** Titular = primer vínculo (DEF-015) o columnas planas legacy. */
+function getTitularRef(salon: Salon): string {
+  const fromLink = salon.gruposAsignados?.find((g) => g.profesor && g.profesor !== 'Sin asignar')?.profesor;
+  if (fromLink) return fromLink;
+  if (isGuid(salon.teacherId)) return salon.teacherId!;
+  if (salon.profesorAsignado && salon.profesorAsignado !== 'Sin asignar') return salon.profesorAsignado;
+  return '';
 }
 
-function getAlumnosDelSalon(salon: Salon): Student[] {
+function countDistinctTeachers(salon: Salon): number {
+  const set = new Set<string>();
+  for (const g of salon.gruposAsignados ?? []) {
+    if (g.profesor && g.profesor !== 'Sin asignar') set.add(g.profesor);
+  }
+  const flat = getTitularRef(salon);
+  if (flat) set.add(flat);
+  return set.size;
+}
+
+function resolveTeacher(ref: string, teachers: Profesor[]): Profesor | undefined {
+  if (!ref || ref === 'Sin asignar') return undefined;
+  if (isGuid(ref)) return teachers.find((t) => String(t.id) === ref);
+  return teachers.find((t) => t.nombre === ref);
+}
+
+function teacherDisplayName(ref: string | undefined, teachers: Profesor[]): string {
+  if (!ref || ref === 'Sin asignar') return 'Sin asignar';
+  const t = resolveTeacher(ref, teachers);
+  if (t?.nombre) return t.nombre;
+  if (isGuid(ref)) return `Profesor (${ref.slice(0, 8)}…)`;
+  return ref;
+}
+
+function matchBranch(alumno: Student, salon: Salon): boolean {
+  if (salon.branchId && alumno.branchId) return alumno.branchId === salon.branchId;
+  if (salon.sucursal) return alumno.branchName === salon.sucursal;
+  return true;
+}
+
+function getAlumnosDelSalon(salon: Salon, studentsList: Student[]): Student[] {
   if (salon.gruposAsignados && salon.gruposAsignados.length > 0) {
     const combos = salon.gruposAsignados.filter((g) => g.grupo !== 'Todos');
-    return students.filter(
+    return studentsList.filter(
       (alumno) =>
-        alumno.branchName === salon.sucursal &&
+        matchBranch(alumno, salon) &&
         alumno.status === 'active' &&
         combos.some(
           (c) =>
@@ -77,13 +115,24 @@ function getAlumnosDelSalon(salon: Salon): Student[] {
         )
     );
   }
-  return students.filter(
+  return studentsList.filter(
     (alumno) =>
       alumno.level === salon.nivel &&
       alumno.group === salon.grupo &&
-      alumno.branchName === salon.sucursal &&
+      matchBranch(alumno, salon) &&
       alumno.status === 'active'
   );
+}
+
+function countAlumnosGrupo(salon: Salon, grupo: string, grado: string, nivel: string, studentsList: Student[]): number {
+  return studentsList.filter(
+    (alumno) =>
+      matchBranch(alumno, salon) &&
+      alumno.status === 'active' &&
+      alumno.level === nivel &&
+      alumno.group === grupo &&
+      (alumno.grade === grado || grado === 'Todos')
+  ).length;
 }
 
 function exportToCSV(dataToExport: Salon[]) {
@@ -126,10 +175,22 @@ export default function Salones() {
   const { branch, branchOptions } = useSchoolContext();
 
   const [data, setData] = useState<Salon[]>([]);
+  const [studentsList, setStudentsList] = useState<Student[]>([]);
+  const [teachersList, setTeachersList] = useState<Profesor[]>([]);
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({}),
     queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
     errorToast: 'Error al cargar salones',
+  });
+  const studentsQ = useApiResource({
+    queryKey: queryKeys.students.list({ for: 'salones' }),
+    queryFn: () => studentsApi.listStudents({ pageSize: 500 }),
+    errorToast: 'Error al cargar alumnos para ocupación',
+  });
+  const teachersQ = useApiResource({
+    queryKey: queryKeys.teachers.list({ for: 'salones' }),
+    queryFn: () => teachersApi.listTeachers({ pageSize: 200 }),
+    errorToast: 'Error al cargar profesores',
   });
   useEffect(() => {
     if (!classroomsQ.data) return;
@@ -141,6 +202,12 @@ export default function Salones() {
       }))
     );
   }, [classroomsQ.data, branchOptions, branch?.name]);
+  useEffect(() => {
+    if (studentsQ.data) setStudentsList(studentsQ.data);
+  }, [studentsQ.data]);
+  useEffect(() => {
+    if (teachersQ.data) setTeachersList(teachersQ.data);
+  }, [teachersQ.data]);
 
   const [search, setSearch] = useState('');
   const [sucursalFilter, setSucursalFilter] = useState('');
@@ -170,14 +237,19 @@ export default function Salones() {
     let filteredData = [...data];
     if (search) {
       const s = search.toLowerCase();
-      filteredData = filteredData.filter((r) => r.nombre.toLowerCase().includes(s) || r.profesorAsignado.toLowerCase().includes(s));
+      filteredData = filteredData.filter(
+        (r) =>
+          r.nombre.toLowerCase().includes(s) ||
+          r.profesorAsignado.toLowerCase().includes(s) ||
+          teacherDisplayName(getTitularRef(r), teachersList).toLowerCase().includes(s)
+      );
     }
     if (sucursalFilter) filteredData = filteredData.filter((r) => r.sucursal === sucursalFilter);
     if (nivelFilter) filteredData = filteredData.filter((r) => r.nivel === nivelFilter);
     if (tipoFilter) filteredData = filteredData.filter((r) => r.tipo === tipoFilter);
     if (estadoFilter) filteredData = filteredData.filter((r) => r.estado === estadoFilter);
     return filteredData;
-  }, [data, search, sucursalFilter, nivelFilter, tipoFilter, estadoFilter]);
+  }, [data, search, sucursalFilter, nivelFilter, tipoFilter, estadoFilter, teachersList]);
 
   const sorted = useMemo(() => {
     const sortedData = [...filtered];
@@ -194,26 +266,39 @@ export default function Salones() {
 
   const quickViewAlumnos = useMemo(() => {
     if (!quickView) return [];
-    return getAlumnosDelSalon(quickView);
-  }, [quickView]);
+    return getAlumnosDelSalon(quickView, studentsList);
+  }, [quickView, studentsList]);
 
   const ocupadosMap = useMemo(() => {
     const map = new Map<string, number>();
     data.forEach((salon) => {
-      map.set(salon.id, getAlumnosDelSalon(salon).length);
+      map.set(salon.id, getAlumnosDelSalon(salon, studentsList).length);
     });
     return map;
-  }, [data]);
+  }, [data, studentsList]);
 
   const quickViewProfesor = useMemo(() => {
-    if (!quickView || quickView.profesorAsignado === 'Sin asignar') return null;
-    return getProfesorInfo(quickView.profesorAsignado);
-  }, [quickView]);
+    if (!quickView) return null;
+    const ref = getTitularRef(quickView);
+    if (!ref) return null;
+    return resolveTeacher(ref, teachersList) ?? null;
+  }, [quickView, teachersList]);
+
+  const quickViewTitularLabel = useMemo(() => {
+    if (!quickView) return '';
+    const ref = getTitularRef(quickView);
+    return teacherDisplayName(ref, teachersList);
+  }, [quickView, teachersList]);
+
+  const quickViewTeacherCount = useMemo(
+    () => (quickView ? countDistinctTeachers(quickView) : 0),
+    [quickView]
+  );
 
   const kpis = useMemo(() => {
     const ocupadosMapData = new Map<string, number>();
     data.forEach((salon) => {
-      ocupadosMapData.set(salon.id, getAlumnosDelSalon(salon).length);
+      ocupadosMapData.set(salon.id, getAlumnosDelSalon(salon, studentsList).length);
     });
     const ocupadosTotal = Array.from(ocupadosMapData.values()).reduce((a, b) => a + b, 0);
     return {
@@ -224,7 +309,7 @@ export default function Salones() {
       capacidadTotal: data.reduce((acc, s) => acc + s.capacidad, 0),
       ocupadosTotal,
     };
-  }, [data]);
+  }, [data, studentsList]);
 
   const selectedCount = selectedIds.size;
 
@@ -334,13 +419,16 @@ export default function Salones() {
       return;
     }
     setSaving(true);
+    // Wizard option B: single POST/PUT. First group link fills flat columns; all links → AssignedGroupsJson.
+    const firstLink = formData.gruposAsignados[0];
+    const teacherRaw = (firstLink?.profesor || formData.profesorAsignado || '').trim();
     const payload: Partial<Salon> & { branchId: string } = {
       branchId: formData.sucursal,
       educationLevelId: isGuid(formData.nivel) ? formData.nivel : undefined,
       nombre: formData.nombre.trim(),
-      nivel: formData.nivel,
-      grado: formData.grado,
-      grupo: formData.grupo,
+      nivel: firstLink?.nivel ?? formData.nivel,
+      grado: firstLink?.grado ?? formData.grado,
+      grupo: firstLink?.grupo ?? formData.grupo,
       capacidad: Number(formData.capacidad) || 0,
       sucursal: branch?.name || '',
       tipo: formData.tipo as Salon['tipo'],
@@ -349,9 +437,9 @@ export default function Salones() {
       equipamiento: formData.equipamiento
         ? formData.equipamiento.split(',').map((e) => e.trim()).filter(Boolean)
         : [],
-      teacherId: isGuid(formData.profesorAsignado) ? formData.profesorAsignado : undefined,
-      profesorAsignado: formData.profesorAsignado,
-      horarioClase: formData.horarioClase,
+      teacherId: isGuid(teacherRaw) ? teacherRaw : undefined,
+      profesorAsignado: teacherRaw || 'Sin asignar',
+      horarioClase: firstLink?.horario ?? formData.horarioClase,
       estado: formData.estado as Salon['estado'],
       gruposAsignados: formData.gruposAsignados,
     };
@@ -411,22 +499,30 @@ export default function Salones() {
     },
     {
       key: 'profesorAsignado',
-      header: 'Profesor',
+      header: 'Titular',
       sortable: true,
       width: '180px',
       render: (row) => {
-        const profe = getProfesorInfo(row.profesorAsignado);
-        if (!profe) {
-          return <span className="text-sm text-foreground-400 italic">{row.profesorAsignado}</span>;
+        const ref = getTitularRef(row);
+        if (!ref) {
+          return <span className="text-sm text-foreground-400 italic">Sin asignar</span>;
         }
+        const profe = resolveTeacher(ref, teachersList);
+        const label = teacherDisplayName(ref, teachersList);
+        const extra = countDistinctTeachers(row);
         return (
           <div className="flex items-center gap-2 min-w-0">
-            <img
-              src={profe.fotoUrl}
-              alt={profe.nombre}
+            <TeacherAvatar
+              src={profe?.fotoUrl}
+              alt={label}
               className="w-6 h-6 rounded-full object-cover flex-shrink-0 border border-secondary-200"
             />
-            <span className="text-sm text-foreground-700 truncate">{profe.nombre}</span>
+            <div className="min-w-0">
+              <span className="text-sm text-foreground-700 truncate block">{label}</span>
+              {extra > 1 && (
+                <span className="text-2xs text-foreground-400">+{extra - 1} más en vínculos</span>
+              )}
+            </div>
           </div>
         );
       },
@@ -750,10 +846,6 @@ export default function Salones() {
 
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
-                  <p className="text-2xs text-foreground-500 uppercase tracking-wider">Nivel / Grado / Grupo</p>
-                  <p className="text-sm font-medium text-foreground-800">{quickView.nivel} · {quickView.grado}° · "{quickView.grupo}"</p>
-                </div>
-                <div>
                   <p className="text-2xs text-foreground-500 uppercase tracking-wider">Sucursal</p>
                   <p className="text-sm font-medium text-foreground-800">{quickView.sucursal}</p>
                 </div>
@@ -762,24 +854,53 @@ export default function Salones() {
                   <p className="text-sm font-medium text-foreground-800">{quickView.edificio} / Piso {quickView.piso}</p>
                 </div>
                 <div>
-                  <p className="text-2xs text-foreground-500 uppercase tracking-wider">Capacidad</p>
-                  <p className="text-sm font-medium text-foreground-800">{quickViewAlumnos.length} / {quickView.capacidad} alumnos</p>
+                  <p className="text-2xs text-foreground-500 uppercase tracking-wider">Capacidad del salón</p>
+                  <p className="text-sm font-medium text-foreground-800">
+                    {quickViewAlumnos.length} / {quickView.capacidad} alumnos
+                  </p>
+                  {(quickView.gruposAsignados?.length ?? 0) > 1 && (
+                    <p className="text-2xs text-foreground-400 mt-0.5">Compartida entre los grupos vinculados</p>
+                  )}
                 </div>
-                <div className="md:col-span-2">
-                  <p className="text-2xs text-foreground-500 uppercase tracking-wider">Horario</p>
-                  <p className="text-sm font-medium text-foreground-800">{quickView.horarioClase}</p>
-                </div>
+                {(!quickView.gruposAsignados || quickView.gruposAsignados.length === 0) && (
+                  <>
+                    <div>
+                      <p className="text-2xs text-foreground-500 uppercase tracking-wider">Nivel / Grado / Grupo</p>
+                      <p className="text-sm font-medium text-foreground-800">
+                        {quickView.nivel || '—'} · {quickView.grado || '—'} · {quickView.grupo || '—'}
+                      </p>
+                    </div>
+                    <div className="md:col-span-2">
+                      <p className="text-2xs text-foreground-500 uppercase tracking-wider">Horario</p>
+                      <p className="text-sm font-medium text-foreground-800">{quickView.horarioClase || '—'}</p>
+                    </div>
+                  </>
+                )}
               </div>
 
               {quickView.gruposAsignados && quickView.gruposAsignados.length > 0 && (
                 <div>
                   <p className="text-2xs text-foreground-500 uppercase tracking-wider mb-2 flex items-center gap-1">
                     <i className="ri-group-line text-sm" />
-                    Grupos Asignados ({quickView.gruposAsignados.length})
+                    Grupos vinculados ({quickView.gruposAsignados.length})
+                  </p>
+                  <p className="text-2xs text-foreground-400 mb-2">
+                    Cada fila muestra alumnos del grupo. La capacidad ({quickView.capacidad}) es del espacio físico, no un cupo exclusivo por grupo.
                   </p>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {quickView.gruposAsignados.map((g, i) => {
-                      const pct = Math.round(((g.ocupados ?? 0) / quickView.capacidad) * 100);
+                    {quickView.gruposAsignados.map((g: SalonGrupo, i: number) => {
+                      const ocupadosGrupo = countAlumnosGrupo(
+                        quickView,
+                        g.grupo,
+                        g.grado,
+                        g.nivel,
+                        studentsList
+                      );
+                      const pctShared =
+                        quickView.capacidad > 0
+                          ? Math.round((ocupadosGrupo / quickView.capacidad) * 100)
+                          : 0;
+                      const profeLabel = teacherDisplayName(g.profesor, teachersList);
                       return (
                         <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-background-100 border border-background-200/70">
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -788,20 +909,24 @@ export default function Salones() {
                             </span>
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-foreground-800 truncate">
-                                {g.grado}° · {g.grupo} · {g.nivel}
+                                {g.grado} · {g.grupo} · {g.nivel}
                               </p>
                               <p className="text-xs text-foreground-500 truncate">
-                                {g.horario}{g.profesor ? ` · ${g.profesor}` : ''}
+                                {g.horario || 'Sin horario'}
+                                {` · ${profeLabel}`}
                               </p>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                            <span className="text-sm font-semibold text-foreground-800">{g.ocupados ?? 0}</span>
-                            <span className="text-xs text-foreground-400">/ {quickView.capacidad}</span>
-                            <div className="w-12 h-1.5 bg-background-200 rounded-full overflow-hidden">
+                            <span className="text-sm font-semibold text-foreground-800">{ocupadosGrupo}</span>
+                            <span className="text-xs text-foreground-400">alumnos</span>
+                            <div
+                              className="w-12 h-1.5 bg-background-200 rounded-full overflow-hidden"
+                              title={`Participación vs capacidad del salón (${quickView.capacidad})`}
+                            >
                               <div
-                                className={`h-full rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                                style={{ width: `${Math.min(pct, 100)}%` }}
+                                className={`h-full rounded-full ${pctShared >= 90 ? 'bg-red-500' : pctShared >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                                style={{ width: `${Math.min(pctShared, 100)}%` }}
                               />
                             </div>
                           </div>
@@ -809,6 +934,15 @@ export default function Salones() {
                       );
                     })}
                   </div>
+                </div>
+              )}
+
+              {(!quickView.gruposAsignados || quickView.gruposAsignados.length === 0) && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-secondary-50 border border-secondary-200">
+                  <i className="ri-information-line text-foreground-400 text-sm" />
+                  <p className="text-xs text-foreground-500">
+                    Este salón no tiene grupos vinculados. Puedes asignarlos al editar (paso Grupos).
+                  </p>
                 </div>
               )}
 
@@ -821,33 +955,54 @@ export default function Salones() {
                 </div>
               </div>
 
-              {quickViewProfesor && (
+              {(quickViewProfesor || (quickViewTitularLabel && quickViewTitularLabel !== 'Sin asignar')) && (
                 <div>
                   <p className="text-2xs text-foreground-500 uppercase tracking-wider mb-2 flex items-center gap-1">
                     <i className="ri-user-star-line text-sm" />
-                    Profesor Asignado
+                    Titular del salón
+                    {quickViewTeacherCount > 1 ? ' (primer vínculo)' : ''}
                   </p>
                   <div className="flex items-center gap-3 p-3 rounded-lg bg-background-100 border border-background-200/70">
-                    <img
-                      src={quickViewProfesor.fotoUrl}
-                      alt={quickViewProfesor.nombre}
+                    <TeacherAvatar
+                      src={quickViewProfesor?.fotoUrl}
+                      alt={quickViewTitularLabel}
                       className="w-10 h-10 rounded-full object-cover border border-secondary-200 flex-shrink-0"
                     />
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-foreground-800">{quickViewProfesor.nombre}</p>
-                      <p className="text-xs text-foreground-500 truncate">{quickViewProfesor.especialidad} · {quickViewProfesor.email}</p>
+                      <p className="text-sm font-semibold text-foreground-800">{quickViewTitularLabel}</p>
+                      {quickViewProfesor && (
+                        <p className="text-xs text-foreground-500 truncate">
+                          {quickViewProfesor.especialidad} · {quickViewProfesor.email}
+                        </p>
+                      )}
+                      {quickViewTeacherCount > 1 && (
+                        <p className="text-2xs text-foreground-400 mt-0.5">
+                          Hay {quickViewTeacherCount} docentes en los vínculos; el listado muestra el titular.
+                        </p>
+                      )}
                     </div>
-                    <Badge variant={quickViewProfesor.estado === 'Activo' ? 'success' : quickViewProfesor.estado === 'Suspendido' ? 'warning' : 'default'} size="sm">
-                      {quickViewProfesor.estado}
-                    </Badge>
+                    {quickViewProfesor && (
+                      <Badge
+                        variant={
+                          quickViewProfesor.estado === 'Activo'
+                            ? 'success'
+                            : quickViewProfesor.estado === 'Suspendido'
+                              ? 'warning'
+                              : 'default'
+                        }
+                        size="sm"
+                      >
+                        {quickViewProfesor.estado}
+                      </Badge>
+                    )}
                   </div>
                 </div>
               )}
 
-              {!quickViewProfesor && quickView.profesorAsignado === 'Sin asignar' && (
+              {!getTitularRef(quickView) && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
                   <i className="ri-user-voice-line text-amber-500 text-sm" />
-                  <p className="text-xs text-amber-700">Este salón no tiene profesor asignado.</p>
+                  <p className="text-xs text-amber-700">Sin titular: ningún vínculo tiene profesor asignado.</p>
                 </div>
               )}
 
@@ -855,7 +1010,10 @@ export default function Salones() {
                 <div>
                   <p className="text-2xs text-foreground-500 uppercase tracking-wider mb-2 flex items-center gap-1">
                     <i className="ri-group-line text-sm" />
-                    Alumnos Activos ({quickViewAlumnos.length})
+                    Alumnos activos coincidentes ({quickViewAlumnos.length})
+                  </p>
+                  <p className="text-2xs text-foreground-400 mb-2">
+                    Coincidencia por nivel/grado/grupo y sucursal (no por asignación automática al salón).
                   </p>
                   <div className="max-h-48 overflow-y-auto space-y-1.5">
                     {quickViewAlumnos.map((alumno) => (
@@ -881,7 +1039,7 @@ export default function Salones() {
               {quickViewAlumnos.length === 0 && (
                 <div className="flex items-center gap-2 p-3 rounded-lg bg-secondary-50 border border-secondary-200">
                   <i className="ri-information-line text-foreground-400 text-sm" />
-                  <p className="text-xs text-foreground-500">No hay alumnos activos registrados en este salón.</p>
+                  <p className="text-xs text-foreground-500">No hay alumnos activos que coincidan con los grupos de este salón.</p>
                 </div>
               )}
             </div>

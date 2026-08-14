@@ -1,15 +1,17 @@
 import Card from '@/components/base/Card';
 import Badge from '@/components/base/Badge';
 import type { Student } from '@/mocks/alumnos';
+import type { Salon } from '@/mocks/salones';
 import { getProfesorDelAlumno, getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
 
 interface ExpedienteTabProps {
   student: Student;
+  classrooms?: Salon[];
 }
 
-export default function ExpedienteTab({ student }: ExpedienteTabProps) {
-  const profesor = getProfesorDelAlumno(student.level, student.grade, student.group, student.branchName);
-  const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName);
+export default function ExpedienteTab({ student, classrooms = [] }: ExpedienteTabProps) {
+  const profesor = getProfesorDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms);
+  const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms);
 
   const infoGroups = [
     {

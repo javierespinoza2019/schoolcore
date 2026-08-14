@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import Card from '@/components/base/Card';
 import Button from '@/components/base/Button';
 import Badge from '@/components/base/Badge';
@@ -7,6 +8,9 @@ import Input from '@/components/base/Input';
 import DeleteConfirmModal from '@/components/base/DeleteConfirmModal';
 import PermisosModal from '@/pages/configuracion/components/PermisosModal';
 import { useToast } from '@/components/base/Toast';
+import * as settingsApi from '@/api/settingsApi';
+import { isGuid } from '@/api/helpers';
+import { queryKeys } from '@/api/queryKeys';
 
 interface NivelEducativo { id: string; nombre: string; grados: number; activo: boolean; }
 interface RolPermiso { id: string; nombre: string; usuarios: number; descripcion: string; }
@@ -23,97 +27,131 @@ interface Props {
 
 export default function CatalogosTab({
   niveles, roles, notificaciones,
-  onNivelesUpdate, onRolesUpdate, onNotificacionesUpdate,
+  onNivelesUpdate,
 }: Props) {
   const [modalNivel, setModalNivel] = useState(false);
-  const [modalRol, setModalRol] = useState(false);
   const [permisosOpen, setPermisosOpen] = useState(false);
   const [permisosRol, setPermisosRol] = useState<RolPermiso | null>(null);
   const [editingNivel, setEditingNivel] = useState<NivelEducativo | null>(null);
-  const [editingRol, setEditingRol] = useState<RolPermiso | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'nivel' | 'rol'; item: NivelEducativo | RolPermiso } | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
   const [nivelForm, setNivelForm] = useState({ nombre: '', grados: '' });
-  const [rolForm, setRolForm] = useState({ nombre: '', descripcion: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
 
-  const toggleNivel = (id: string) => {
-    onNivelesUpdate(niveles.map((n) => n.id === id ? { ...n, activo: !n.activo } : n));
-    const niv = niveles.find((n) => n.id === id);
-    if (niv) showToast(`Nivel "${niv.nombre}" ${niv.activo ? 'desactivado' : 'activado'}`, 'success');
+  const invalidateNiveles = () => {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.settings.catalogs() });
   };
 
-  const toggleNotificacion = (id: string) => {
-    onNotificacionesUpdate(notificaciones.map((n) => n.id === id ? { ...n, activo: !n.activo } : n));
-    showToast('Notificación actualizada', 'success');
+  const toggleNivel = async (id: string) => {
+    const niv = niveles.find((n) => n.id === id);
+    if (!niv || !isGuid(id)) {
+      showToast('Nivel inválido', 'error');
+      return;
+    }
+    const next = !niv.activo;
+    const res = await settingsApi.updateEducationLevel(id, { ...niv, activo: next });
+    if (!res.success) {
+      showToast(res.message || 'No se pudo actualizar el nivel', 'error');
+      return;
+    }
+    onNivelesUpdate(niveles.map((n) => (n.id === id ? { ...n, activo: next } : n)));
+    showToast(`Nivel "${niv.nombre}" ${next ? 'activado' : 'desactivado'}`, 'success');
+    invalidateNiveles();
+  };
+
+  const toggleNotificacion = (_id: string) => {
+    showToast('La persistencia de notificaciones aún no está disponible en esta versión', 'info');
   };
 
   const openEditNivel = (n: NivelEducativo) => { setEditingNivel(n); setNivelForm({ nombre: n.nombre, grados: String(n.grados) }); setErrors({}); setModalNivel(true); };
   const openCreateNivel = () => { setEditingNivel(null); setNivelForm({ nombre: '', grados: '' }); setErrors({}); setModalNivel(true); };
 
-  const openEditRol = (r: RolPermiso) => { setEditingRol(r); setRolForm({ nombre: r.nombre, descripcion: r.descripcion }); setErrors({}); setModalRol(true); };
-  const openCreateRol = () => { setEditingRol(null); setRolForm({ nombre: '', descripcion: '' }); setErrors({}); setModalRol(true); };
+  const openEditRol = (_r: RolPermiso) => {
+    showToast('La edición de roles del sistema no está disponible en esta versión', 'info');
+  };
+  const openCreateRol = () => {
+    showToast('Los roles se administran por script de plataforma; no se pueden crear aquí aún', 'info');
+  };
 
-  const handleSaveNivel = () => {
+  const handleSaveNivel = async () => {
     const errs: Record<string, string> = {};
     if (!nivelForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del nivel';
     if (!nivelForm.grados.trim() || parseInt(nivelForm.grados) <= 0) errs.grados = 'Ingresa un número de grados válido';
     setErrors(errs);
     if (Object.keys(errs).length > 0) return;
     setSaving(true);
-    setTimeout(() => {
+    try {
       if (editingNivel) {
-        onNivelesUpdate(niveles.map((n) => n.id === editingNivel.id ? { ...n, nombre: nivelForm.nombre, grados: parseInt(nivelForm.grados) } : n));
+        if (!isGuid(editingNivel.id)) {
+          showToast('Nivel inválido', 'error');
+          return;
+        }
+        const res = await settingsApi.updateEducationLevel(editingNivel.id, {
+          nombre: nivelForm.nombre.trim(),
+          grados: parseInt(nivelForm.grados),
+          activo: editingNivel.activo,
+        });
+        if (!res.success || !res.data) {
+          showToast(res.message || 'No se pudo actualizar', 'error');
+          return;
+        }
+        onNivelesUpdate(niveles.map((n) => (n.id === editingNivel.id ? res.data! : n)));
         showToast('Nivel educativo actualizado', 'success');
       } else {
-        const nuevo: NivelEducativo = { id: `niv-${Date.now()}`, nombre: nivelForm.nombre, grados: parseInt(nivelForm.grados), activo: true };
-        onNivelesUpdate([...niveles, nuevo]);
+        const res = await settingsApi.createEducationLevel({
+          nombre: nivelForm.nombre.trim(),
+          grados: parseInt(nivelForm.grados),
+          activo: true,
+        });
+        if (!res.success || !res.data) {
+          showToast(res.message || 'No se pudo crear', 'error');
+          return;
+        }
+        onNivelesUpdate([...niveles, res.data]);
         showToast('Nivel educativo agregado', 'success');
       }
-      setSaving(false);
       setModalNivel(false);
-    }, 600);
-  };
-
-  const handleSaveRol = () => {
-    const errs: Record<string, string> = {};
-    if (!rolForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del rol';
-    if (!rolForm.descripcion.trim()) errs.descripcion = 'Ingresa la descripción del rol';
-    setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
-    setSaving(true);
-    setTimeout(() => {
-      if (editingRol) {
-        onRolesUpdate(roles.map((r) => r.id === editingRol.id ? { ...r, nombre: rolForm.nombre, descripcion: rolForm.descripcion } : r));
-        showToast('Rol actualizado', 'success');
-      } else {
-        const nuevo: RolPermiso = { id: `rol-${Date.now()}`, nombre: rolForm.nombre, descripcion: rolForm.descripcion, usuarios: 0 };
-        onRolesUpdate([...roles, nuevo]);
-        showToast('Rol creado correctamente', 'success');
-      }
+      invalidateNiveles();
+    } catch {
+      showToast('Error de red al guardar nivel', 'error');
+    } finally {
       setSaving(false);
-      setModalRol(false);
-    }, 600);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!deleteTarget) return;
+    if (deleteTarget.type === 'rol') {
+      showToast('Los roles del sistema no se pueden eliminar desde la UI', 'info');
+      setDeleteTarget(null);
+      return;
+    }
+    if (!isGuid(deleteTarget.item.id)) {
+      showToast('Nivel inválido', 'error');
+      return;
+    }
     setDeleting(true);
     const name = deleteTarget.item.nombre;
-    setTimeout(() => {
-      if (deleteTarget.type === 'nivel') {
-        onNivelesUpdate(niveles.filter((n) => n.id !== deleteTarget.item.id));
-      } else {
-        onRolesUpdate(roles.filter((r) => r.id !== deleteTarget.item.id));
+    try {
+      const res = await settingsApi.deleteEducationLevel(deleteTarget.item.id);
+      if (!res.success) {
+        showToast(res.message || 'No se pudo eliminar', 'error');
+        return;
       }
+      onNivelesUpdate(niveles.filter((n) => n.id !== deleteTarget.item.id));
       showToast(`"${name}" eliminado`, 'success');
-      setDeleting(false);
       setDeleteTarget(null);
-    }, 600);
+      invalidateNiveles();
+    } catch {
+      showToast('Error de red al eliminar', 'error');
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const openPermisos = (rol: RolPermiso) => {
@@ -122,8 +160,7 @@ export default function CatalogosTab({
   };
 
   const handlePermisosSave = (_rolId: string, _selectedMods: string[]) => {
-    // Permissions are managed in-memory via permisosPorRol mock
-    // In a real app this would update the database
+    // RBAC real pendiente — PermisosModal ya no finge éxito
   };
 
   return (
@@ -233,25 +270,11 @@ export default function CatalogosTab({
         title={editingNivel ? 'Editar Nivel Educativo' : 'Agregar Nivel Educativo'}
         subtitle={editingNivel ? `Editando: ${editingNivel.nombre}` : 'Define el nuevo nivel y cantidad de grados'}
         size="sm"
-        footer={<div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={() => { setModalNivel(false); setErrors({}); }}>Cancelar</Button><Button variant="primary" size="sm" icon={saving ? undefined : 'ri-check-line'} onClick={handleSaveNivel} disabled={saving}>{saving ? (<><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />Guardando...</>) : editingNivel ? 'Guardar Cambios' : 'Agregar Nivel'}</Button></div>}
+        footer={<div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={() => { setModalNivel(false); setErrors({}); }}>Cancelar</Button><Button variant="primary" size="sm" icon={saving ? undefined : 'ri-check-line'} onClick={() => void handleSaveNivel()} disabled={saving}>{saving ? (<><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />Guardando...</>) : editingNivel ? 'Guardar Cambios' : 'Agregar Nivel'}</Button></div>}
       >
         <div className="space-y-4">
           <Input label="Nombre del Nivel" required value={nivelForm.nombre} onChange={(e) => { setNivelForm((f) => ({ ...f, nombre: e.target.value })); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Bachillerato" />
           <Input label="Número de Grados" required type="number" value={nivelForm.grados} onChange={(e) => { setNivelForm((f) => ({ ...f, grados: e.target.value })); if (errors.grados) setErrors((p) => { const n = { ...p }; delete n.grados; return n; }); }} error={errors.grados} placeholder="Ej. 6" />
-        </div>
-      </Modal>
-
-      <Modal
-        open={modalRol}
-        onClose={() => { setModalRol(false); setErrors({}); }}
-        title={editingRol ? 'Editar Rol' : 'Nuevo Rol'}
-        subtitle={editingRol ? `Editando: ${editingRol.nombre}` : 'Define un nuevo rol y su descripción'}
-        size="sm"
-        footer={<div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={() => { setModalRol(false); setErrors({}); }}>Cancelar</Button><Button variant="primary" size="sm" icon={saving ? undefined : 'ri-check-line'} onClick={handleSaveRol} disabled={saving}>{saving ? (<><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />Guardando...</>) : editingRol ? 'Guardar Cambios' : 'Crear Rol'}</Button></div>}
-      >
-        <div className="space-y-4">
-          <Input label="Nombre del Rol" required value={rolForm.nombre} onChange={(e) => { setRolForm((f) => ({ ...f, nombre: e.target.value })); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Contador" />
-          <Input label="Descripción" required value={rolForm.descripcion} onChange={(e) => { setRolForm((f) => ({ ...f, descripcion: e.target.value })); if (errors.descripcion) setErrors((p) => { const n = { ...p }; delete n.descripcion; return n; }); }} error={errors.descripcion} placeholder="Ej. Acceso a módulos de finanzas y reportes" />
         </div>
       </Modal>
 
@@ -265,7 +288,7 @@ export default function CatalogosTab({
       <DeleteConfirmModal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
+        onConfirm={() => void handleDelete()}
         loading={deleting}
         title={deleteTarget?.type === 'nivel' ? 'Eliminar Nivel Educativo' : 'Eliminar Rol'}
         message={`¿Estás seguro de eliminar "${deleteTarget?.item.nombre}"? Esta acción no se puede deshacer.`}

@@ -238,3 +238,8 @@ export async function linkParent(
     },
   });
 }
+
+/** DELETE /students/:studentId/guardians/:guardianId */
+export async function unlinkParent(studentId: string, parentId: string): Promise<ApiResponse<null>> {
+  return apiClient<null>(`/students/${studentId}/guardians/${parentId}`, { method: 'DELETE' });
+}
