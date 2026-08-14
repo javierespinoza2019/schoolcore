@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+**/bin/
+**/obj/
+dist/
+build/
+.vite/
+
+# Logs / local
+logs/
+*.log
+backend/documents/**
+!backend/documents/.gitkeep
+
+# Secrets / env
+.env
+.env.local
+.env.*.local
+!.env.example
+!.env.development
+!.env.qa
+!.env.production
+**/appsettings.*.local.json
+
+# IDE
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

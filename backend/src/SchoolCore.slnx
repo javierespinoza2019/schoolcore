@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="SchoolCore.API/SchoolCore.API.csproj" />
+  <Project Path="SchoolCore.Business/SchoolCore.Business.csproj" />
+  <Project Path="SchoolCore.Common/SchoolCore.Common.csproj" />
+  <Project Path="SchoolCore.DataAccess/SchoolCore.DataAccess.csproj" />
+  <Project Path="SchoolCore.Models/SchoolCore.Models.csproj" />
+  <Project Path="SchoolCore.Tests/SchoolCore.Tests.csproj" />
+</Solution>
