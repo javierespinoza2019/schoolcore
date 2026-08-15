@@ -49,13 +49,14 @@ export default function EstadoCuenta() {
     else setConceptos([]);
   }, [estadoCuenta]);
 
-  const handlePagoRegistrado = useCallback((pago: PagoConcepto) => {
-    setConceptos((prev) => [pago, ...prev]);
-    showToast(`Pago de $${pago.monto.toLocaleString('es-MX')} registrado. Estado de cuenta actualizado.`, 'success');
-  }, [showToast]);
+  const handlePagoRegistrado = useCallback((_pago: PagoConcepto) => {
+    void statementQ.refetch();
+    void studentQ.refetch();
+    showToast('Pago registrado. Estado de cuenta actualizado.', 'success');
+  }, [showToast, statementQ, studentQ]);
 
   const totalPagado = useMemo(() => conceptos.filter((c) => c.estado === 'pagado').reduce((s, c) => s + c.montoPagado, 0), [conceptos]);
-  const totalPendiente = useMemo(() => conceptos.filter((c) => c.estado === 'vencido' || c.estado === 'pendiente' || c.estado === 'parcial').reduce((s, c) => s + (c.monto - c.montoPagado), 0), [conceptos]);
+  const totalPendiente = useMemo(() => conceptos.filter((c) => c.estado === 'vencido' || c.estado === 'pendiente').reduce((s, c) => s + (c.monto - c.montoPagado), 0), [conceptos]);
   const conceptosPagados = conceptos.filter((c) => c.estado === 'pagado').length;
   const conceptosVencidos = conceptos.filter((c) => c.estado === 'vencido').length;
 
@@ -118,8 +119,8 @@ export default function EstadoCuenta() {
       return <span className={`text-xs font-medium ${saldo > 0 ? 'text-red-600' : 'text-foreground-400'}`}>${saldo.toLocaleString('es-MX')}</span>;
     }},
     { key: 'estado', header: 'Estado', sortable: true, align: 'center', width: '11%', render: (row) => (
-      <Badge variant={row.estado === 'pagado' ? 'success' : row.estado === 'pendiente' ? 'warning' : row.estado === 'parcial' ? 'info' : 'danger'} size="sm">
-        {row.estado === 'pagado' ? 'Pagado' : row.estado === 'pendiente' ? 'Pendiente' : row.estado === 'parcial' ? 'Parcial' : 'Vencido'}
+      <Badge variant={row.estado === 'pagado' ? 'success' : row.estado === 'pendiente' ? 'warning' : 'danger'} size="sm">
+        {row.estado === 'pagado' ? 'Pagado' : row.estado === 'pendiente' ? 'Pendiente' : 'Vencido'}
       </Badge>
     )},
     { key: 'metodo', header: 'Método', sortable: false, width: '11%', render: (row) => (

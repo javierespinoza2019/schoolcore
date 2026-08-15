@@ -1,7 +1,10 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useSidebar } from '@/hooks/useSidebar';
 import { useAuth } from '@/auth/AuthContext';
-import { FEATURES } from '@/config/features';
+import { usePermissions } from '@/permissions/PermissionContext';
+import { ViewCodes } from '@/permissions/viewCodes';
+import type { FeatureFlagId } from '@/config/features';
+import { useFeatureFlags } from '@/context/FeatureFlagsContext';
 import { env } from '@/config/env';
 
 interface NavItem {
@@ -11,56 +14,58 @@ interface NavItem {
   badge?: string;
   badgeVariant?: 'primary' | 'accent' | 'warning';
   children?: NavItem[];
-  featureFlag?: keyof typeof FEATURES;
+  featureFlag?: FeatureFlagId;
+  viewCode?: string;
 }
 
 const navSections: { label: string; items: NavItem[] }[] = [
   {
     label: 'Principal',
     items: [
-      { label: 'Dashboard', path: '/', icon: 'ri-dashboard-line' },
+      { label: 'Dashboard', path: '/', icon: 'ri-dashboard-line', viewCode: ViewCodes.DASHBOARD },
     ],
   },
   {
     label: 'Gestión',
     items: [
-      { label: 'Alumnos', path: '/alumnos', icon: 'ri-user-star-line' },
-      { label: 'Padres', path: '/padres', icon: 'ri-user-heart-line' },
-      { label: 'Profesores', path: '/profesores', icon: 'ri-user-voice-line' },
-      { label: 'Salones', path: '/salones', icon: 'ri-building-2-line' },
-      { label: 'Sucursales', path: '/sucursales', icon: 'ri-store-2-line' },
+      { label: 'Alumnos', path: '/alumnos', icon: 'ri-user-star-line', viewCode: ViewCodes.STUDENTS },
+      { label: 'Padres', path: '/padres', icon: 'ri-user-heart-line', viewCode: ViewCodes.PARENTS },
+      { label: 'Profesores', path: '/profesores', icon: 'ri-user-voice-line', viewCode: ViewCodes.TEACHERS },
+      { label: 'Salones', path: '/salones', icon: 'ri-building-2-line', viewCode: ViewCodes.CLASSROOMS },
+      { label: 'Sucursales', path: '/sucursales', icon: 'ri-store-2-line', viewCode: ViewCodes.BRANCHES },
     ],
   },
   {
     label: 'Procesos',
     items: [
-      { label: 'Inscripciones', path: '/inscripciones', icon: 'ri-file-list-3-line' },
+      { label: 'Inscripciones', path: '/inscripciones', icon: 'ri-file-list-3-line', viewCode: ViewCodes.ENROLLMENTS },
     ],
   },
   {
     label: 'Finanzas',
     items: [
-      { label: 'Finanzas', path: '/finanzas', icon: 'ri-money-dollar-circle-line' },
-      { label: 'Caja', path: '/caja', icon: 'ri-money-dollar-box-line' },
+      { label: 'Finanzas', path: '/finanzas', icon: 'ri-money-dollar-circle-line', viewCode: ViewCodes.FINANCE },
+      { label: 'Caja', path: '/caja', icon: 'ri-money-dollar-box-line', viewCode: ViewCodes.CASH },
     ],
   },
   {
     label: 'Análisis',
     items: [
-      { label: 'Reportes', path: '/reportes', icon: 'ri-bar-chart-2-line' },
+      { label: 'Reportes', path: '/reportes', icon: 'ri-bar-chart-2-line', viewCode: ViewCodes.REPORTS },
     ],
   },
   {
     label: 'Sistema',
     items: [
-      { label: 'Notificaciones', path: '/notificaciones', icon: 'ri-notification-3-line' },
+      { label: 'Notificaciones', path: '/notificaciones', icon: 'ri-notification-3-line', viewCode: ViewCodes.NOTIFICATIONS },
       {
         label: 'Asistente IA',
         path: '/asistente-ia',
         icon: 'ri-robot-2-line',
         featureFlag: 'aiAssistant',
+        viewCode: ViewCodes.AI_ASSISTANT,
       },
-      { label: 'Configuración', path: '/configuracion', icon: 'ri-settings-3-line' },
+      { label: 'Configuración', path: '/configuracion', icon: 'ri-settings-3-line', viewCode: ViewCodes.SETTINGS },
     ],
   },
 ];
@@ -78,13 +83,20 @@ export default function Sidebar() {
   const location = useLocation();
   const { collapsed, setCollapsed, mobileOpen, setMobileOpen } = useSidebar();
   const { user } = useAuth();
+  const { can, usingRealPermissions, isLoadingPermissions } = usePermissions();
+  const { isEnabled } = useFeatureFlags();
 
   const visibleSections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter(
-        (item) => !item.featureFlag || FEATURES[item.featureFlag]
-      ),
+      items: section.items.filter((item) => {
+        if (item.featureFlag && !isEnabled(item.featureFlag)) return false;
+        if (!item.viewCode) return true;
+        // Mientras cargan permisos reales, no ocultar (evita flash vacío).
+        if (isLoadingPermissions) return true;
+        if (!usingRealPermissions) return true;
+        return can(item.viewCode, 'view');
+      }),
     }))
     .filter((section) => section.items.length > 0);
 

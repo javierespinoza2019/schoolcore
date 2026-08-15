@@ -12,6 +12,12 @@ import { listTeachers } from '@/api/teachersApi';
 import { listEducationLevels } from '@/api/settingsApi';
 import { isGuid } from '@/api/helpers';
 import { queryKeys } from '@/api/queryKeys';
+import {
+  FieldLimits,
+  assignError,
+  validateMaxLen,
+  validatePositiveNumber,
+} from '@/lib/validation/fields';
 
 interface SalonFormModalProps {
   open: boolean;
@@ -263,12 +269,11 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
     const newErrors: Record<string, string> = {};
 
     if (!form.nombre.trim()) newErrors.nombre = 'El nombre/código es obligatorio';
+    assignError(newErrors, 'nombre', validateMaxLen(form.nombre, FieldLimits.classroomName, 'El nombre'));
     if (!form.tipo) newErrors.tipo = 'Selecciona un tipo';
-    if (!form.capacidad.trim()) newErrors.capacidad = 'La capacidad es obligatoria';
-    else if (isNaN(Number(form.capacidad)) || Number(form.capacidad) <= 0) {
-      newErrors.capacidad = 'Ingresa un número válido mayor a 0';
-    }
+    assignError(newErrors, 'capacidad', validatePositiveNumber(form.capacidad, 'La capacidad'));
     if (!form.edificio.trim()) newErrors.edificio = 'El edificio es obligatorio';
+    assignError(newErrors, 'edificio', validateMaxLen(form.edificio, FieldLimits.building, 'Edificio'));
     if (!form.piso.trim()) newErrors.piso = 'El piso es obligatorio';
     else if (isNaN(Number(form.piso)) || Number(form.piso) < 0) {
       newErrors.piso = 'Ingresa un número de piso válido';
@@ -326,6 +331,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
   };
 
   const handleSubmit = () => {
+    if (saving) return;
     if (!validateStep1()) {
       setStep(0);
       return;
@@ -366,6 +372,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
                 size="sm"
                 icon="ri-save-line"
                 onClick={handleSubmit}
+                disabled={saving}
                 loading={saving}
               >
                 {hasLinks
@@ -386,6 +393,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
               <Input
                 label="Nombre / Código"
                 required
+                maxLength={FieldLimits.classroomName}
                 value={form.nombre}
                 onChange={(e) => handleChange('nombre', e.target.value)}
                 error={errors.nombre}
@@ -420,6 +428,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
               <Input
                 label="Edificio"
                 required
+                maxLength={FieldLimits.building}
                 value={form.edificio}
                 onChange={(e) => handleChange('edificio', e.target.value)}
                 error={errors.edificio}
@@ -553,6 +562,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
                   <Input
                     label="Horario"
                     required
+                    maxLength={FieldLimits.schedule}
                     value={newGrupo.horario}
                     onChange={(e) => {
                       setNewGrupo((prev) => ({ ...prev, horario: e.target.value }));

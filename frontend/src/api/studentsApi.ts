@@ -1,7 +1,7 @@
 import { apiClient } from '@/api/apiClient';
 import { buildQuery, fetchOrFallback, isGuid, unwrapList } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
-import type { Student, StudentDocument } from '@/mocks/alumnos';
+import type { Student, StudentDocument, StudentPayment, StudentTimelineEvent } from '@/mocks/alumnos';
 import { students as mockStudents } from '@/mocks/alumnos';
 
 export interface StudentListParams {
@@ -130,8 +130,7 @@ export async function listStudents(params: StudentListParams = {}): Promise<Fetc
     () => mockStudents
   );
   const items = unwrapList(result.data).map(normalizeStudent);
-  if (result.source === 'api') return { data: items, source: 'api', message: result.message };
-  return { data: items.length ? items : mockStudents, source: 'fallback', message: result.message };
+  return { data: items, source: result.source, message: result.message };
 }
 
 /** GET /students/:id */
@@ -242,4 +241,84 @@ export async function linkParent(
 /** DELETE /students/:studentId/guardians/:guardianId */
 export async function unlinkParent(studentId: string, parentId: string): Promise<ApiResponse<null>> {
   return apiClient<null>(`/students/${studentId}/guardians/${parentId}`, { method: 'DELETE' });
+}
+
+/** GET /documents?entityType=student&entityId= */
+export async function listStudentDocuments(
+  studentId: string
+): Promise<FetchResult<StudentDocument[]>> {
+  const q = buildQuery({ entityType: 'student', entityId: studentId, page: 1, pageSize: 100 });
+  const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
+    () => apiClient(`/documents${q}`),
+    () => []
+  );
+  const items = unwrapList(result.data).map((raw) => {
+    const d = raw as Record<string, unknown>;
+    const statusRaw = String(d.status ?? 'pending').toLowerCase();
+    const status: StudentDocument['status'] =
+      statusRaw === 'verified' || statusRaw === 'rejected' ? statusRaw : 'pending';
+    return {
+      id: String(d.id ?? ''),
+      name: String(d.originalFileName ?? d.name ?? 'Documento'),
+      type: String(d.extension ?? d.contentType ?? '').replace(/^\./, '') || 'file',
+      uploadDate: String(d.createdAt ?? '').slice(0, 10),
+      status,
+    };
+  });
+  return { data: items, source: result.source, message: result.message };
+}
+
+/** GET /timeline?entityType=student&entityId= */
+export async function listStudentTimeline(
+  studentId: string
+): Promise<FetchResult<StudentTimelineEvent[]>> {
+  const q = buildQuery({ entityType: 'student', entityId: studentId });
+  const result = await fetchOrFallback<Record<string, unknown>[] | PagedResult<Record<string, unknown>>>(
+    () => apiClient(`/timeline${q}`),
+    () => []
+  );
+  const rows = Array.isArray(result.data)
+    ? result.data
+    : unwrapList(result.data ?? null);
+  const items: StudentTimelineEvent[] = rows.map((raw) => {
+    const r = raw as Record<string, unknown>;
+    return {
+      id: String(r.id ?? ''),
+      date: String(r.eventDate ?? r.createdAt ?? '').slice(0, 10),
+      title: String(r.title ?? 'Evento'),
+      description: String(r.description ?? ''),
+      icon: String(r.icon ?? 'ri-history-line'),
+      iconBg: 'bg-secondary-100',
+      iconColor: 'text-secondary-600',
+      badge: r.badge ? String(r.badge) : undefined,
+      badgeVariant: 'default',
+    };
+  });
+  return { data: items, source: result.source, message: result.message };
+}
+
+/** Mapea cargos del alumno a la forma UI de PagosTab (sin inventar datos). */
+export function chargesToStudentPayments(
+  charges: Array<{
+    id: string;
+    conceptName: string;
+    netAmount: number;
+    status: string;
+    dueDate: string;
+  }>
+): StudentPayment[] {
+  const today = new Date().toISOString().slice(0, 10);
+  return charges.map((c) => {
+    const st = c.status.toLowerCase();
+    let status: StudentPayment['status'] = 'pending';
+    if (st === 'paid') status = 'paid';
+    else if (st === 'overdue' || (st === 'pending' && c.dueDate && c.dueDate < today)) status = 'overdue';
+    return {
+      id: c.id,
+      concept: c.conceptName,
+      amount: c.netAmount,
+      date: c.dueDate,
+      status,
+    };
+  });
 }

@@ -1,5 +1,4 @@
 import type { RouteObject } from 'react-router-dom';
-import { Navigate } from 'react-router-dom';
 import NotFound from '../pages/NotFound';
 import Dashboard from '../pages/dashboard/page';
 import Alumnos from '../pages/alumnos/page';
@@ -22,7 +21,6 @@ import LoginPage from '../pages/login/page';
 import ForgotPasswordPage from '../pages/forgot-password/page';
 import ResetPasswordPage from '../pages/reset-password/page';
 import ProtectedRoute from '../routes/ProtectedRoute';
-import { FEATURES } from '../config/features';
 
 const appChildren: RouteObject[] = [
   { path: '/', element: <Dashboard /> },
@@ -39,10 +37,8 @@ const appChildren: RouteObject[] = [
   { path: '/finanzas/estado-cuenta/:id', element: <EstadoCuenta /> },
   { path: '/caja', element: <Caja /> },
   { path: '/reportes', element: <Reportes /> },
-  {
-    path: '/asistente-ia',
-    element: FEATURES.aiAssistant ? <AsistenteIA /> : <Navigate to="/" replace />,
-  },
+  /** Gating real en ProtectedRoute + Sidebar vía flag AiAssistant. */
+  { path: '/asistente-ia', element: <AsistenteIA /> },
   { path: '/configuracion', element: <Configuracion /> },
   { path: '/notificaciones', element: <Notificaciones /> },
   { path: '*', element: <NotFound /> },

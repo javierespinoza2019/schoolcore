@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import MainLayout from '@/components/feature/MainLayout';
+import ModuleContextGate from '@/components/feature/ModuleContextGate';
 import Card from '@/components/base/Card';
 import Button from '@/components/base/Button';
 import Input from '@/components/base/Input';
@@ -653,6 +654,7 @@ export default function Salones() {
   ];
 
   return (
+    <ModuleContextGate requireCycle={false}>
     <MainLayout>
       <div className="max-w-[1440px] mx-auto">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
@@ -1065,5 +1067,6 @@ export default function Salones() {
         />
       </div>
     </MainLayout>
+    </ModuleContextGate>
   );
 }

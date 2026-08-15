@@ -3,16 +3,17 @@ import { getAccessToken } from '@/auth/tokenStorage';
 import { useAuth } from '@/auth/AuthContext';
 import { usePermissions } from '@/permissions/PermissionContext';
 import { viewCodeForPath } from '@/permissions/viewCodes';
-import { FEATURES } from '@/config/features';
+import { useFeatureFlags } from '@/context/FeatureFlagsContext';
 
 /**
  * Protege rutas: sin token → /login.
  * Con permisos reales → ViewCode.view; stub permite todo si autenticado.
- * Asistente IA gated por FEATURES.aiAssistant.
+ * Asistente IA gated por feature flag AiAssistant (BD).
  */
 export default function ProtectedRoute() {
   const { isAuthenticated } = useAuth();
   const { can, usingRealPermissions } = usePermissions();
+  const { isEnabled } = useFeatureFlags();
   const location = useLocation();
   const token = getAccessToken();
 
@@ -20,7 +21,7 @@ export default function ProtectedRoute() {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (location.pathname.startsWith('/asistente-ia') && !FEATURES.aiAssistant) {
+  if (location.pathname.startsWith('/asistente-ia') && !isEnabled('aiAssistant')) {
     return <Navigate to="/" replace />;
   }
 

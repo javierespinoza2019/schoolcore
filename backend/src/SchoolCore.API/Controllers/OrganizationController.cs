@@ -182,4 +182,13 @@ public sealed class OrganizationController : ControllerBase
     [HttpPut("feature-flags")]
     public async Task<ActionResult<ApiResponse>> SetFlag([FromBody] SetFeatureFlagRequest request, CancellationToken ct)
     { await _service.SetFeatureFlagAsync(request, ct); return Ok(ApiResponse.Ok("Feature flag updated.")); }
+
+    [HttpGet("role-permissions/{roleId:guid}")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<RolePermissionGrantDto>>>> GetRolePermissions(Guid roleId, CancellationToken ct)
+        => Ok(ApiResponse<IReadOnlyList<RolePermissionGrantDto>>.Ok(await _service.GetRolePermissionsAsync(roleId, ct)));
+
+    [HttpPut("role-permissions/{roleId:guid}")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<RolePermissionGrantDto>>>> ReplaceRolePermissions(
+        Guid roleId, [FromBody] ReplaceRolePermissionsRequest request, CancellationToken ct)
+        => Ok(ApiResponse<IReadOnlyList<RolePermissionGrantDto>>.Ok(await _service.ReplaceRolePermissionsAsync(roleId, request, ct)));
 }

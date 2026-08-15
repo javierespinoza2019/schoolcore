@@ -7,7 +7,9 @@ using Microsoft.IdentityModel.Tokens;
 using SchoolCore.API.Middleware;
 using SchoolCore.Business;
 using SchoolCore.Common.Converters;
+using SchoolCore.Common.Interaction;
 using SchoolCore.Common.Options;
+using SchoolCore.Common.Responses;
 using Serilog;
 
 // Bootstrap one-off: generate ASP.NET Identity password hash for 999_BootstrapTenant_AppFabric.sql
@@ -144,6 +146,22 @@ try
                     Window = TimeSpan.FromMinutes(15),
                     QueueLimit = 0
                 }));
+
+        options.OnRejected = async (context, cancellationToken) =>
+        {
+            var http = context.HttpContext;
+            http.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            if (context.Lease.TryGetMetadata(MetadataName.RetryAfter, out TimeSpan retryAfter))
+            {
+                http.Response.Headers.RetryAfter = ((int)Math.Ceiling(retryAfter.TotalSeconds)).ToString();
+            }
+
+            var (message, errors) = InteractionMessages.Error("RATE_LIMITED");
+            await http.Response.WriteAsJsonAsync(
+                ApiResponse.Fail(message, errors),
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase },
+                cancellationToken);
+        };
     });
 
     if (builder.Environment.IsDevelopment())
@@ -175,6 +193,7 @@ try
     app.UseAuthentication();
     app.UseMiddleware<TenantContextMiddleware>();
     app.UseAuthorization();
+    app.UseMiddleware<PermissionGateMiddleware>();
     app.MapControllers();
     app.MapHealthChecks("/healthz");
 

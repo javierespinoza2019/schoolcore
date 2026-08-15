@@ -17,6 +17,7 @@ public interface IFinanceRepository
     Task<PagedResult<PaymentDto>> ListPaymentsAsync(Guid tenantId, Guid? branchId, Guid? studentId, int page, int pageSize, CancellationToken ct = default);
     Task<PaymentDto?> GetPaymentAsync(Guid tenantId, Guid id, CancellationToken ct = default);
     Task<PaymentDto> CreatePaymentAsync(Guid tenantId, Guid id, CreatePaymentRequest request, Guid? userId, CancellationToken ct = default);
+    Task<PaymentDto> ReversePaymentAsync(Guid tenantId, Guid id, ReversePaymentRequest request, Guid? userId, CancellationToken ct = default);
 
     Task<PagedResult<ExpenseDto>> ListExpensesAsync(Guid tenantId, Guid? branchId, int page, int pageSize, CancellationToken ct = default);
     Task<ExpenseDto> CreateExpenseAsync(Guid tenantId, Guid id, CreateExpenseRequest request, Guid? userId, CancellationToken ct = default);
@@ -103,6 +104,19 @@ public sealed class FinanceRepository : IFinanceRepository
             request.IdempotencyKey,
             request.Notes,
             CreatedBy = userId
+        }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+    }
+
+    public async Task<PaymentDto> ReversePaymentAsync(Guid tenantId, Guid id, ReversePaymentRequest request, Guid? userId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        return await conn.QuerySingleAsync<PaymentDto>(new CommandDefinition("sp_Payment_Reverse", new
+        {
+            TenantId = tenantId,
+            Id = id,
+            request.Reason,
+            request.ReverseCashSessionId,
+            UpdatedBy = userId
         }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
     }
 

@@ -14,11 +14,15 @@ AS
 BEGIN
     SET NOCOUNT ON; SET XACT_ABORT ON;
     IF NOT EXISTS (SELECT 1 FROM dbo.Student WHERE TenantId=@TenantId AND Id=@StudentId AND IsDeleted=0)
-        THROW 51004, 'Student not found.', 1;
+        THROW 51004, N'No se encontró el alumno.', 1;
+    IF (@GrossAmount IS NULL OR @GrossAmount <= 0)
+        THROW 51020, N'El cargo debe ser mayor a 0.', 1;
     -- Beca aplicada al generar el cargo (monto neto)
     DECLARE @Sch DECIMAL(5,2) = COALESCE(@ScholarshipPercent, (SELECT ScholarshipPercent FROM dbo.Student WHERE Id=@StudentId));
     IF @Sch < 0 SET @Sch = 0; IF @Sch > 100 SET @Sch = 100;
     DECLARE @Net DECIMAL(18,2) = ROUND(@GrossAmount * (1 - (@Sch / 100.0)), 2);
+    IF @Net <= 0
+        THROW 51020, N'El cargo debe ser mayor a 0.', 1;
 
     INSERT INTO dbo.Charge (Id,TenantId,BranchId,StudentId,PaymentConceptId,ConceptName,ConceptType,GrossAmount,ScholarshipPercent,NetAmount,AmountPaid,DueDate,Status,SchoolCycleId,CreatedAt,CreatedBy)
     VALUES (@Id,@TenantId,@BranchId,@StudentId,@PaymentConceptId,@ConceptName,@ConceptType,@GrossAmount,@Sch,@Net,0,@DueDate,N'pending',@SchoolCycleId,SYSUTCDATETIME(),@CreatedBy);

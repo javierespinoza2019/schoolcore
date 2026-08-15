@@ -4,6 +4,8 @@ import Button from '@/components/base/Button';
 import Card from '@/components/base/Card';
 import Input from '@/components/base/Input';
 import * as authApi from '@/api/authApi';
+import { friendlyApiError } from '@/lib/interaction/messages';
+import { validatePassword } from '@/lib/validation/fields';
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -18,14 +20,16 @@ export default function ResetPasswordPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setError(null);
 
     if (!token) {
       setError('El enlace de recuperación no es válido o ha expirado.');
       return;
     }
-    if (password.length < 8) {
-      setError('La contraseña debe tener al menos 8 caracteres.');
+    const passwordErr = validatePassword(password);
+    if (passwordErr) {
+      setError(passwordErr);
       return;
     }
     if (password !== confirm) {
@@ -37,7 +41,7 @@ export default function ResetPasswordPage() {
     try {
       const res = await authApi.resetPassword({ token, newPassword: password });
       if (!res.success) {
-        setError(res.message || res.errors?.[0] || 'No se pudo restablecer la contraseña.');
+        setError(friendlyApiError(res) || 'No se pudo restablecer la contraseña.');
         return;
       }
       setDone(true);
@@ -102,8 +106,9 @@ export default function ResetPasswordPage() {
                 required
                 icon="ri-lock-line"
                 iconRight={showPassword ? 'ri-eye-off-line' : 'ri-eye-line'}
+                iconRightAriaLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                 onIconClick={() => setShowPassword((v) => !v)}
-                placeholder="Mínimo 8 caracteres"
+                placeholder="Mínimo 8 caracteres, mayúscula, minúscula y dígito"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -120,8 +125,8 @@ export default function ResetPasswordPage() {
               />
 
               {error && (
-                <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-100 px-3 py-2">
-                  <i className="ri-error-warning-line text-red-500 mt-0.5" />
+                <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-100 px-3 py-2" role="alert">
+                  <i className="ri-error-warning-line text-red-500 mt-0.5" aria-hidden="true" />
                   <p className="text-xs text-red-600">{error}</p>
                 </div>
               )}

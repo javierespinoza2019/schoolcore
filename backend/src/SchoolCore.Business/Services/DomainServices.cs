@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using SchoolCore.Business.Security;
 using SchoolCore.Common.Exceptions;
+using SchoolCore.Common.Interaction;
 using SchoolCore.Common.Options;
 using SchoolCore.Common.Security;
 using SchoolCore.DataAccess.Repositories;
@@ -24,17 +25,29 @@ internal static class SqlExec
     public static async Task<T> RunAsync<T>(Func<Task<T>> action)
     {
         try { return await action(); }
-        catch (SqlException ex) when (ex.Number is 51001 or 51009) { throw AppException.Conflict(ex.Message); }
-        catch (SqlException ex) when (ex.Number == 51004) { throw AppException.NotFound(ex.Message); }
-        catch (SqlException ex) { throw AppException.BadRequest(ex.Message); }
+        catch (SqlException ex) when (ex.Number is 51001 or 51009) { throw AppException.Conflict(FriendlySql(ex.Message)); }
+        catch (SqlException ex) when (ex.Number == 51004) { throw AppException.NotFound(FriendlySql(ex.Message)); }
+        catch (SqlException ex) { throw AppException.BadRequest(FriendlySql(ex.Message)); }
     }
 
     public static async Task RunAsync(Func<Task> action)
     {
         try { await action(); }
-        catch (SqlException ex) when (ex.Number is 51001 or 51009) { throw AppException.Conflict(ex.Message); }
-        catch (SqlException ex) when (ex.Number == 51004) { throw AppException.NotFound(ex.Message); }
-        catch (SqlException ex) { throw AppException.BadRequest(ex.Message); }
+        catch (SqlException ex) when (ex.Number is 51001 or 51009) { throw AppException.Conflict(FriendlySql(ex.Message)); }
+        catch (SqlException ex) when (ex.Number == 51004) { throw AppException.NotFound(FriendlySql(ex.Message)); }
+        catch (SqlException ex) { throw AppException.BadRequest(FriendlySql(ex.Message)); }
+    }
+
+    private static string FriendlySql(string raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "No se pudo completar la operación. Revisa los datos e intenta de nuevo.";
+        var m = raw.Trim();
+        // Prefer already-friendly Spanish messages from THROW.
+        if (!m.Contains("Exception", StringComparison.OrdinalIgnoreCase)
+            && !m.Contains("dbo.", StringComparison.OrdinalIgnoreCase)
+            && !m.StartsWith("Violation", StringComparison.OrdinalIgnoreCase))
+            return m;
+        return "No se pudo completar la operación. Revisa los datos e intenta de nuevo.";
     }
 }
 
@@ -94,24 +107,21 @@ public sealed class PeopleService : IPeopleService
     public async Task<StudentDto> GetStudentAsync(Guid id, CancellationToken ct = default)
     {
         var (tenantId, _) = Ctx();
-        return await _repo.GetStudentAsync(tenantId, id, ct) ?? throw AppException.NotFound("Student not found.");
+        return await _repo.GetStudentAsync(tenantId, id, ct)
+            ?? throw AppException.NotFound(InteractionMessages.Text("NOT_FOUND_STUDENT"));
     }
 
     public Task<StudentDto> CreateStudentAsync(StudentUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (request.BranchId == Guid.Empty) throw AppException.BadRequest("Branch is required.");
-        if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-            throw AppException.BadRequest("FirstName and LastName are required.");
+        ValidateStudent(request);
         return SqlExec.RunAsync(() => _repo.CreateStudentAsync(tenantId, Guid.NewGuid(), request, userId, ct));
     }
 
     public Task<StudentDto> UpdateStudentAsync(Guid id, StudentUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (request.BranchId == Guid.Empty) throw AppException.BadRequest("Branch is required.");
-        if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-            throw AppException.BadRequest("FirstName and LastName are required.");
+        ValidateStudent(request);
         return SqlExec.RunAsync(() => _repo.UpdateStudentAsync(tenantId, id, request, userId, ct));
     }
 
@@ -131,18 +141,21 @@ public sealed class PeopleService : IPeopleService
     public async Task<GuardianDto> GetGuardianAsync(Guid id, CancellationToken ct = default)
     {
         var (tenantId, _) = Ctx();
-        return await _repo.GetGuardianAsync(tenantId, id, ct) ?? throw AppException.NotFound("Guardian not found.");
+        return await _repo.GetGuardianAsync(tenantId, id, ct)
+            ?? throw AppException.NotFound(InteractionMessages.Text("NOT_FOUND_GUARDIAN"));
     }
 
     public Task<GuardianDto> CreateGuardianAsync(GuardianUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
+        ValidateGuardian(request);
         return SqlExec.RunAsync(() => _repo.CreateGuardianAsync(tenantId, Guid.NewGuid(), request, userId, ct));
     }
 
     public Task<GuardianDto> UpdateGuardianAsync(Guid id, GuardianUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
+        ValidateGuardian(request);
         return SqlExec.RunAsync(() => _repo.UpdateGuardianAsync(tenantId, id, request, userId, ct));
     }
 
@@ -181,9 +194,9 @@ public sealed class PeopleService : IPeopleService
         var (tenantId, userId) = Ctx();
         var ext = Path.GetExtension(fileName)?.ToLowerInvariant() ?? string.Empty;
         if (!_docs.AllowedExtensions.Contains(ext, StringComparer.OrdinalIgnoreCase))
-            throw AppException.BadRequest($"Extension '{ext}' is not allowed.");
+            throw AppException.BadRequest(InteractionMessages.Text("FILE_EXT"), new[] { "FILE_EXT" });
         if (content.CanSeek && content.Length > _docs.MaxFileSizeBytes)
-            throw AppException.BadRequest("File exceeds maximum size of 5 MB.");
+            throw AppException.BadRequest(InteractionMessages.Text("FILE_SIZE"), new[] { "FILE_SIZE" });
 
         var fileId = Guid.NewGuid();
         var relative = Path.Combine(userId.ToString("D"), $"{fileId:D}{ext}").Replace('\\', '/');
@@ -198,7 +211,7 @@ public sealed class PeopleService : IPeopleService
             {
                 fs.Close();
                 File.Delete(absolutePath);
-                throw AppException.BadRequest("File exceeds maximum size of 5 MB.");
+                throw AppException.BadRequest(InteractionMessages.Text("FILE_SIZE"), new[] { "FILE_SIZE" });
             }
 
             var meta = new DocumentDto
@@ -257,8 +270,44 @@ public sealed class PeopleService : IPeopleService
     public Task<TimelineEventDto> CreateTimelineAsync(TimelineEventCreateRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.Title)) throw AppException.BadRequest("Title is required.");
+        if (string.IsNullOrWhiteSpace(request.Title)) throw AppException.BadRequest("El título es obligatorio.");
         return SqlExec.RunAsync(() => _repo.CreateTimelineAsync(tenantId, Guid.NewGuid(), request, userId, ct));
+    }
+
+    private static void ValidateStudent(StudentUpsertRequest request)
+    {
+        if (request.BranchId == Guid.Empty)
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.CtxNoBranch);
+            throw AppException.BadRequest(msg, errs);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredName);
+            throw AppException.BadRequest(msg, errs);
+        }
+
+        if (!request.SchoolCycleId.HasValue || request.SchoolCycleId == Guid.Empty)
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.CtxNoCycle);
+            throw AppException.BadRequest(msg, errs);
+        }
+    }
+
+    private static void ValidateGuardian(GuardianUpsertRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredName);
+            throw AppException.BadRequest(msg, errs);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredEmail);
+            throw AppException.BadRequest(msg, errs);
+        }
     }
 }
 
@@ -317,23 +366,69 @@ public sealed class AcademicService : IAcademicService
     public async Task<EnrollmentDto> GetEnrollmentAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetEnrollmentAsync(t, id, ct) ?? throw AppException.NotFound("Enrollment not found."); }
     public Task<EnrollmentDto> CreateEnrollmentAsync(CreateEnrollmentRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.CreateEnrollmentAsync(t, Guid.NewGuid(), request, u, ct)); }
+    { var (t, u) = Ctx(); ValidateEnrollmentCreate(request); return SqlExec.RunAsync(() => _repo.CreateEnrollmentAsync(t, Guid.NewGuid(), request, u, ct)); }
     public Task<EnrollmentDto> SaveEnrollmentWizardAsync(Guid id, SaveEnrollmentWizardRequest request, CancellationToken ct = default)
     { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.SaveEnrollmentWizardAsync(t, id, request, u, ct)); }
     public Task<EnrollmentDto> CompleteEnrollmentAsync(Guid id, CompleteEnrollmentRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.CompleteEnrollmentAsync(t, id, request.StudentId, u, ct)); }
+    {
+        var (t, u) = Ctx();
+        if (request.StudentId == Guid.Empty)
+        {
+            var (msg, errs) = InteractionMessages.Error("NOT_FOUND_STUDENT");
+            throw AppException.BadRequest(msg, errs);
+        }
+        return SqlExec.RunAsync(() => _repo.CompleteEnrollmentAsync(t, id, request.StudentId, u, ct));
+    }
+
+    private static void ValidateEnrollmentCreate(CreateEnrollmentRequest request)
+    {
+        if (request.BranchId == Guid.Empty)
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.CtxNoBranch);
+            throw AppException.BadRequest(msg, errs);
+        }
+
+        if (request.SchoolCycleId == Guid.Empty)
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.CtxNoCycle);
+            throw AppException.BadRequest(msg, errs);
+        }
+    }
 
     private static void ValidateTeacher(TeacherUpsertRequest request)
     {
-        if (request.BranchId == Guid.Empty) throw AppException.BadRequest("Branch is required.");
+        if (request.BranchId == Guid.Empty)
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.CtxNoBranch);
+            throw AppException.BadRequest(msg, errs);
+        }
+
         if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-            throw AppException.BadRequest("FirstName and LastName are required.");
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredName);
+            throw AppException.BadRequest(msg, errs);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Email))
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredEmail);
+            throw AppException.BadRequest(msg, errs);
+        }
     }
 
     private static void ValidateClassroom(ClassroomUpsertRequest request)
     {
-        if (request.BranchId == Guid.Empty) throw AppException.BadRequest("Branch is required.");
-        if (string.IsNullOrWhiteSpace(request.Name)) throw AppException.BadRequest("Name is required.");
+        if (request.BranchId == Guid.Empty)
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.CtxNoBranch);
+            throw AppException.BadRequest(msg, errs);
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Name))
+        {
+            var (msg, errs) = InteractionMessages.Error("NAME_REQUIRED");
+            throw AppException.BadRequest(msg, errs);
+        }
     }
 }
 
@@ -345,6 +440,7 @@ public interface IFinanceService
     Task<PagedResult<PaymentDto>> ListPaymentsAsync(Guid? branchId, Guid? studentId, PagedRequest paging, CancellationToken ct = default);
     Task<PaymentDto> GetPaymentAsync(Guid id, CancellationToken ct = default);
     Task<PaymentDto> CreatePaymentAsync(CreatePaymentRequest request, CancellationToken ct = default);
+    Task<PaymentDto> ReversePaymentAsync(Guid id, ReversePaymentRequest request, CancellationToken ct = default);
     Task<PagedResult<ExpenseDto>> ListExpensesAsync(Guid? branchId, PagedRequest paging, CancellationToken ct = default);
     Task<ExpenseDto> CreateExpenseAsync(CreateExpenseRequest request, CancellationToken ct = default);
     Task DeleteExpenseAsync(Guid id, CancellationToken ct = default);
@@ -370,13 +466,40 @@ public sealed class FinanceService : IFinanceService
     public async Task<ChargeDto> GetChargeAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetChargeAsync(t, id, ct) ?? throw AppException.NotFound("Charge not found."); }
     public Task<ChargeDto> CreateChargeAsync(CreateChargeRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.CreateChargeAsync(t, Guid.NewGuid(), request, u, ct)); }
+    {
+        var (t, u) = Ctx();
+        if (request.GrossAmount <= 0)
+        {
+            var (msg, errs) = InteractionMessages.Error("CHARGE_AMOUNT");
+            throw AppException.BadRequest(msg, errs);
+        }
+        return SqlExec.RunAsync(() => _repo.CreateChargeAsync(t, Guid.NewGuid(), request, u, ct));
+    }
     public async Task<PagedResult<PaymentDto>> ListPaymentsAsync(Guid? branchId, Guid? studentId, PagedRequest paging, CancellationToken ct = default)
     { var (t, _) = Ctx(); paging.Normalize(); return await _repo.ListPaymentsAsync(t, branchId, studentId, paging.Page, paging.PageSize, ct); }
     public async Task<PaymentDto> GetPaymentAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetPaymentAsync(t, id, ct) ?? throw AppException.NotFound("Payment not found."); }
     public Task<PaymentDto> CreatePaymentAsync(CreatePaymentRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.CreatePaymentAsync(t, Guid.NewGuid(), request, u, ct)); }
+    {
+        var (t, u) = Ctx();
+        if (request.CashSessionId == Guid.Empty)
+        {
+            var (msg, errs) = InteractionMessages.Error("CASH_SESSION_REQUIRED");
+            throw AppException.BadRequest(msg, errs);
+        }
+        return SqlExec.RunAsync(() => _repo.CreatePaymentAsync(t, Guid.NewGuid(), request, u, ct));
+    }
+
+    public Task<PaymentDto> ReversePaymentAsync(Guid id, ReversePaymentRequest request, CancellationToken ct = default)
+    {
+        var (t, u) = Ctx();
+        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 5)
+        {
+            var (msg, errs) = InteractionMessages.Error("PAYMENT_REVERSE_REASON");
+            throw AppException.BadRequest(msg, errs);
+        }
+        return SqlExec.RunAsync(() => _repo.ReversePaymentAsync(t, id, request, u, ct));
+    }
     public async Task<PagedResult<ExpenseDto>> ListExpensesAsync(Guid? branchId, PagedRequest paging, CancellationToken ct = default)
     { var (t, _) = Ctx(); paging.Normalize(); return await _repo.ListExpensesAsync(t, branchId, paging.Page, paging.PageSize, ct); }
     public Task<ExpenseDto> CreateExpenseAsync(CreateExpenseRequest request, CancellationToken ct = default)

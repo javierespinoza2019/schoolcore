@@ -406,14 +406,18 @@ export async function listRoles(): Promise<FetchResult<RoleInfo[]>> {
   const rawItems = Array.isArray(result.data) ? result.data : unwrapList(result.data);
   const items: RoleInfo[] = rawItems.map((raw) => {
     const r = raw as Record<string, unknown>;
-    const code = String(r.roleCode ?? r.code ?? r.id ?? '');
+    const code = String(r.roleCode ?? r.code ?? '');
+    const roleId = String(r.roleId ?? r.id ?? code);
     const name = String(r.roleName ?? r.name ?? r.nombre ?? roleLabel(code));
     return {
-      id: code || String(r.roleId ?? r.id ?? ''),
+      id: roleId,
+      code,
       nombre: name,
       usuarios: Number(r.usuarios ?? 0),
-      descripcion: String(r.descripcion ?? r.description ?? ''),
-    };
+      descripcion: String(
+        r.descripcion ?? r.description ?? (code ? `Código: ${code}` : '')
+      ),
+    } as RoleInfo;
   });
   if (result.source === 'api') return { data: items, source: 'api' };
   return { data: items.length ? items : rolesPermisos, source: 'fallback' };

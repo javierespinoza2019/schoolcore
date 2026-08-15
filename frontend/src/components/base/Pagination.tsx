@@ -47,6 +47,7 @@ export default function Pagination({
           <select
             value={pageSize}
             onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            aria-label="Resultados por página"
             className="text-xs border border-secondary-200 rounded-md px-2 py-1 bg-background-50 text-foreground-700 outline-none focus:border-primary-400 cursor-pointer"
           >
             {pageSizeOptions.map((size) => (
@@ -57,13 +58,15 @@ export default function Pagination({
           </select>
         )}
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-1" role="navigation" aria-label="Paginación">
         <button
+          type="button"
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1}
+          aria-label="Página anterior"
           className="w-8 h-8 flex items-center justify-center rounded-md text-sm text-foreground-600 hover:bg-secondary-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
         >
-          <i className="ri-arrow-left-s-line" />
+          <i className="ri-arrow-left-s-line" aria-hidden="true" />
         </button>
         {pages.map((page, idx) =>
           page === '...' ? (
@@ -73,7 +76,10 @@ export default function Pagination({
           ) : (
             <button
               key={page}
+              type="button"
               onClick={() => onPageChange(page as number)}
+              aria-label={`Página ${page}`}
+              aria-current={currentPage === page ? 'page' : undefined}
               className={`w-8 h-8 flex items-center justify-center rounded-md text-sm font-medium transition-colors cursor-pointer whitespace-nowrap ${
                 currentPage === page
                   ? 'bg-primary-500 text-white'
@@ -85,11 +91,13 @@ export default function Pagination({
           )
         )}
         <button
+          type="button"
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
+          aria-label="Página siguiente"
           className="w-8 h-8 flex items-center justify-center rounded-md text-sm text-foreground-600 hover:bg-secondary-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
         >
-          <i className="ri-arrow-right-s-line" />
+          <i className="ri-arrow-right-s-line" aria-hidden="true" />
         </button>
       </div>
     </div>

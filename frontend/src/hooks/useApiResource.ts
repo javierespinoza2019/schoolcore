@@ -1,11 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useToast } from '@/components/base/Toast';
 import type { FetchResult } from '@/api/types';
-import { isDevelopment, isQa } from '@/config/env';
+import { isDevelopment } from '@/config/env';
 
 /**
- * Hook estándar: TanStack Query + toast en error + flag de fallback mock.
+ * Hook estándar: TanStack Query + toast en error + flag de fallback mock (solo DEV).
  */
 export function useApiResource<T>(options: {
   queryKey: readonly unknown[];
@@ -14,7 +14,6 @@ export function useApiResource<T>(options: {
   errorToast?: string;
 }) {
   const { showToast } = useToast();
-  const fallbackToastShown = useRef(false);
   const query = useQuery({
     queryKey: options.queryKey,
     queryFn: options.queryFn,
@@ -28,18 +27,10 @@ export function useApiResource<T>(options: {
   }, [query.isError, options.errorToast, showToast]);
 
   useEffect(() => {
-    if (query.data?.source !== 'fallback') {
-      fallbackToastShown.current = false;
-      return;
-    }
-    if (isDevelopment) {
+    if (query.data?.source === 'fallback' && isDevelopment) {
       console.info('[SchoolCore] Usando datos mock (API no disponible aún)');
     }
-    if ((isQa || !isDevelopment) && !fallbackToastShown.current) {
-      fallbackToastShown.current = true;
-      showToast('Datos de demostración: la API no respondió', 'info');
-    }
-  }, [query.data?.source, showToast]);
+  }, [query.data?.source]);
 
   return {
     ...query,

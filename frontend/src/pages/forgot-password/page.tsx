@@ -4,27 +4,30 @@ import Button from '@/components/base/Button';
 import Card from '@/components/base/Card';
 import Input from '@/components/base/Input';
 import * as authApi from '@/api/authApi';
+import { friendlyApiError } from '@/lib/interaction/messages';
+import { FieldLimits, validateEmail } from '@/lib/validation/fields';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setError(null);
 
-    if (!email.trim()) {
-      setError('Ingresa tu correo electrónico.');
-      return;
-    }
+    const emailErr = validateEmail(email, true);
+    setFieldError(emailErr);
+    if (emailErr) return;
 
     setLoading(true);
     try {
       const res = await authApi.forgotPassword({ email: email.trim() });
       if (!res.success) {
-        setError(res.message || res.errors?.[0] || 'No se pudo enviar el correo.');
+        setError(friendlyApiError(res) || 'No se pudo enviar el correo.');
         return;
       }
       setSent(true);
@@ -40,7 +43,7 @@ export default function ForgotPasswordPage() {
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
           <div className="w-12 h-12 rounded-xl bg-primary-500 flex items-center justify-center mb-4 shadow-sm">
-            <i className="ri-graduation-cap-fill text-white text-2xl" />
+            <i className="ri-graduation-cap-fill text-white text-2xl" aria-hidden="true" />
           </div>
           <h1 className="text-2xl font-semibold text-foreground-900 tracking-tight">SchoolCore</h1>
           <p className="mt-1.5 text-sm text-foreground-500 text-center">
@@ -52,7 +55,7 @@ export default function ForgotPasswordPage() {
           {sent ? (
             <div className="space-y-4 text-center">
               <div className="mx-auto w-12 h-12 rounded-full bg-accent-100 flex items-center justify-center">
-                <i className="ri-mail-check-line text-accent-600 text-xl" />
+                <i className="ri-mail-check-line text-accent-600 text-xl" aria-hidden="true" />
               </div>
               <div>
                 <p className="text-sm font-medium text-foreground-800">Revisa tu correo</p>
@@ -79,15 +82,20 @@ export default function ForgotPasswordPage() {
                 type="email"
                 autoComplete="email"
                 required
+                maxLength={FieldLimits.email}
                 icon="ri-mail-line"
                 placeholder="usuario@colegio.edu.mx"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (fieldError) setFieldError(null);
+                }}
+                error={fieldError || undefined}
               />
 
               {error && (
-                <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-100 px-3 py-2">
-                  <i className="ri-error-warning-line text-red-500 mt-0.5" />
+                <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-100 px-3 py-2" role="alert">
+                  <i className="ri-error-warning-line text-red-500 mt-0.5" aria-hidden="true" />
                   <p className="text-xs text-red-600">{error}</p>
                 </div>
               )}

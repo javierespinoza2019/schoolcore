@@ -57,6 +57,7 @@ public interface IOrganizationRepository
 
     Task<IReadOnlyList<EmailTemplateDto>> ListEmailTemplatesAsync(Guid tenantId, CancellationToken ct = default);
     Task<EmailTemplateDto?> GetEmailTemplateAsync(Guid tenantId, Guid id, CancellationToken ct = default);
+    Task<EmailTemplateDto?> ResolveEmailTemplateAsync(Guid tenantId, string templateKey, string culture = "es", CancellationToken ct = default);
     Task<EmailTemplateDto> UpsertEmailTemplateAsync(Guid tenantId, Guid id, EmailTemplateUpsertRequest request, CancellationToken ct = default);
     Task DeactivateEmailTemplateAsync(Guid tenantId, Guid id, CancellationToken ct = default);
 
@@ -550,6 +551,16 @@ public sealed class OrganizationRepository : IOrganizationRepository
     {
         await using var conn = await OpenAsync(ct);
         return await conn.QuerySingleOrDefaultAsync<EmailTemplateDto>(new CommandDefinition("sp_EmailTemplate_GetById", new { TenantId = tenantId, Id = id }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+    }
+
+    public async Task<EmailTemplateDto?> ResolveEmailTemplateAsync(Guid tenantId, string templateKey, string culture = "es", CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        return await conn.QuerySingleOrDefaultAsync<EmailTemplateDto>(new CommandDefinition(
+            "sp_EmailTemplate_Resolve",
+            new { TenantId = tenantId, TemplateKey = templateKey, Culture = culture },
+            commandType: CommandType.StoredProcedure,
+            cancellationToken: ct));
     }
 
     public async Task<EmailTemplateDto> UpsertEmailTemplateAsync(Guid tenantId, Guid id, EmailTemplateUpsertRequest request, CancellationToken ct = default)

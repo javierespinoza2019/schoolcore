@@ -1,8 +1,9 @@
 import { apiClient, apiDownload, triggerBrowserDownload } from '@/api/apiClient';
-import { buildQuery, fetchOrFallback, unwrapList } from '@/api/helpers';
+import { buildQuery, fetchOrFallback, isGuid, unwrapList } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
 import type { EstadoCuenta, EgresoItem, IngresoEgreso, PagoConcepto } from '@/mocks/finanzas';
 import { estadoCuentaPorAlumno } from '@/mocks/finanzas';
+import { isDevelopment } from '@/config/env';
 
 /** Caja v1: pago parcial NO soportado. */
 export const CASH_V1_PARTIAL_PAYMENTS = false;
@@ -94,7 +95,7 @@ export interface RegisterPaymentRequest {
   chargeId?: string;
   amount: number;
   paymentMethodId?: string;
-  cashSessionId?: string;
+  cashSessionId: string;
   reference?: string;
   idempotencyKey?: string;
   notes?: string;
@@ -217,53 +218,171 @@ export async function listPayments(params: {
   const items = unwrapList(result.data).map((raw) => {
     const r = raw as Record<string, unknown>;
     const paidAt = String(r.paidAt ?? r.fecha ?? '').slice(0, 10);
+    const paymentStatus = String(r.status ?? 'posted').toLowerCase();
+    const voided = paymentStatus === 'voided';
     return {
       id: String(r.id ?? ''),
       alumnoId: String(r.studentId ?? ''),
       alumnoNombre: String(r.studentName ?? r.alumno ?? ''),
-      concepto: String(r.conceptName ?? r.concepto ?? ''),
+      concepto: String(r.conceptName ?? r.concepto ?? r.notes ?? 'Pago'),
       tipo: 'otro',
       monto: Number(r.amount ?? r.monto ?? 0),
       fechaVencimiento: paidAt,
-      estado: 'pagado',
-      montoPagado: Number(r.amount ?? r.monto ?? 0),
+      estado: voided ? 'anulado' : 'pagado',
+      montoPagado: voided ? 0 : Number(r.amount ?? r.monto ?? 0),
       fechaPago: paidAt,
       folio: String(r.folio ?? ''),
       metodoPago: String(r.paymentMethodName ?? r.metodo ?? ''),
-    } as unknown as PagoConcepto;
+      paymentStatus,
+      voidReason: r.voidReason ? String(r.voidReason) : undefined,
+    } as PagoConcepto;
   });
   return { data: items, source: result.source, message: result.message };
 }
 
-/** Estado de cuenta: derivado de charges del alumno (sin endpoint dedicado). */
+/** POST /payments/:id/reverse — BR-59C reverso contable. */
+export async function reversePayment(
+  paymentId: string,
+  payload: { reason: string; reverseCashSessionId?: string }
+): Promise<ApiResponse<PagoConcepto>> {
+  if (!isGuid(paymentId)) {
+    return {
+      success: false,
+      data: null,
+      message: 'Identificador de pago inválido.',
+      errors: ['Validation'],
+    };
+  }
+  const reason = payload.reason.trim();
+  if (reason.length < 5) {
+    return {
+      success: false,
+      data: null,
+      message: 'Indica el motivo del reverso (mínimo 5 caracteres).',
+      errors: ['PAYMENT_REVERSE_REASON'],
+    };
+  }
+  const res = await apiClient<Record<string, unknown>>(`/payments/${paymentId}/reverse`, {
+    method: 'POST',
+    body: {
+      reason,
+      reverseCashSessionId: isGuid(payload.reverseCashSessionId)
+        ? payload.reverseCashSessionId
+        : undefined,
+    },
+  });
+  if (res.success && res.data) {
+    const r = res.data;
+    const paidAt = String(r.paidAt ?? '').slice(0, 10);
+    return {
+      ...res,
+      data: {
+        id: String(r.id ?? paymentId),
+        alumnoId: String(r.studentId ?? ''),
+        alumnoNombre: String(r.studentName ?? ''),
+        concepto: String(r.notes ?? 'Pago'),
+        tipo: 'otro',
+        monto: Number(r.amount ?? 0),
+        fechaVencimiento: paidAt,
+        estado: 'anulado',
+        montoPagado: 0,
+        fechaPago: paidAt,
+        folio: String(r.folio ?? ''),
+        metodoPago: String(r.paymentMethodName ?? ''),
+        paymentStatus: 'voided',
+        voidReason: r.voidReason ? String(r.voidReason) : reason,
+      },
+    };
+  }
+  return { ...res, data: null };
+}
+
+/** Estado de cuenta: cargos reales del alumno (sin mock). */
 export async function getAccountStatement(
   studentId: string
 ): Promise<FetchResult<EstadoCuenta | null>> {
-  const q = buildQuery({ studentId, page: 1, pageSize: 200 });
-  const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
-    () => apiClient(`/charges${q}`),
-    () => []
-  );
-  if (result.source === 'api') {
-    const charges = unwrapList(result.data);
-    const pending = charges
-      .filter((c) => String((c as Record<string, unknown>).status) !== 'paid')
-      .reduce((sum, c) => sum + Number((c as Record<string, unknown>).netAmount ?? 0), 0);
-    const paid = charges
-      .filter((c) => String((c as Record<string, unknown>).status) === 'paid')
-      .reduce((sum, c) => sum + Number((c as Record<string, unknown>).netAmount ?? 0), 0);
+  if (!isGuid(studentId)) {
+    return { data: null, source: 'api', message: 'Alumno inválido' };
+  }
+
+  const qCharges = buildQuery({ studentId, page: 1, pageSize: 200 });
+  const qPayments = buildQuery({ studentId, page: 1, pageSize: 200 });
+
+  try {
+    const [chargesRes, paymentsRes] = await Promise.all([
+      apiClient<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(`/charges${qCharges}`),
+      apiClient<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(`/payments${qPayments}`),
+    ]);
+
+    if (!chargesRes.success) {
+      throw new Error(chargesRes.message || 'No se pudieron cargar los cargos');
+    }
+
+    const charges = unwrapList(chargesRes.data);
+    const payments = paymentsRes.success ? unwrapList(paymentsRes.data) : [];
+    const today = new Date().toISOString().slice(0, 10);
+
+    const paymentByCharge = new Map<string, Record<string, unknown>>();
+    for (const raw of payments) {
+      const p = raw as Record<string, unknown>;
+      if (String(p.status ?? 'posted').toLowerCase() === 'voided') continue;
+      const chargeId = String(p.chargeId ?? '');
+      if (chargeId && !paymentByCharge.has(chargeId)) paymentByCharge.set(chargeId, p);
+    }
+
+    const conceptos: PagoConcepto[] = charges.map((raw) => {
+      const c = raw as Record<string, unknown>;
+      const id = String(c.id ?? '');
+      const net = Number(c.netAmount ?? c.grossAmount ?? 0);
+      const statusRaw = String(c.status ?? 'pending').toLowerCase();
+      const due = String(c.dueDate ?? '').slice(0, 10);
+      const pay = paymentByCharge.get(id);
+      let estado: PagoConcepto['estado'] = 'pendiente';
+      if (statusRaw === 'paid') estado = 'pagado';
+      else if (statusRaw === 'overdue' || (statusRaw === 'pending' && due && due < today)) estado = 'vencido';
+
+      return {
+        id,
+        alumnoId: String(c.studentId ?? studentId),
+        alumnoNombre: String(c.studentName ?? ''),
+        concepto: String(c.conceptName ?? 'Cargo'),
+        tipo: (String(c.conceptType ?? 'otro') as PagoConcepto['tipo']) || 'otro',
+        monto: net,
+        fechaVencimiento: due,
+        estado,
+        montoPagado: estado === 'pagado' ? net : 0,
+        fechaPago: pay ? String(pay.paidAt ?? '').slice(0, 10) : undefined,
+        folio: pay ? String(pay.folio ?? '') : undefined,
+        metodoPago: pay ? String(pay.paymentMethodName ?? '') : undefined,
+      };
+    });
+
+    const saldoPendiente = conceptos
+      .filter((c) => c.estado === 'pendiente' || c.estado === 'vencido')
+      .reduce((s, c) => s + (c.monto - c.montoPagado), 0);
+    const totalPagado = conceptos
+      .filter((c) => c.estado === 'pagado')
+      .reduce((s, c) => s + c.montoPagado, 0);
+
     return {
       data: {
         alumnoId: studentId,
-        alumnoNombre: String((charges[0] as Record<string, unknown> | undefined)?.studentName ?? ''),
-        saldoPendiente: pending,
-        totalPagado: paid,
-        conceptos: [],
-      } as EstadoCuenta,
+        alumnoNombre:
+          conceptos[0]?.alumnoNombre ||
+          String((charges[0] as Record<string, unknown> | undefined)?.studentName ?? ''),
+        saldoPendiente,
+        totalPagado,
+        conceptos,
+      },
       source: 'api',
     };
+  } catch (err) {
+    if (isDevelopment) {
+      const mock = estadoCuentaPorAlumno[studentId] ?? null;
+      return { data: mock, source: 'fallback', message: String(err) };
+    }
+    throw err;
   }
-  return { data: estadoCuentaPorAlumno[studentId] ?? null, source: 'fallback' };
 }
 
 export interface ChargeSummary {
@@ -353,7 +472,7 @@ export async function createCharge(
   return { ...res, data: null };
 }
 
-/** POST /payments — cobro completo (sin parciales v1). */
+/** POST /payments — cobro completo (sin parciales v1). BR-58B: exige corte abierto. */
 export async function registerPayment(
   payload: RegisterPaymentRequest
 ): Promise<ApiResponse<PagoConcepto>> {
@@ -364,6 +483,14 @@ export async function registerPayment(
       message:
         'Para cobro real se requieren branchId y chargeId (cargo previo). Sin ellos la UI puede guardar local temporal.',
       errors: ['Validation'],
+    };
+  }
+  if (!isGuid(payload.cashSessionId)) {
+    return {
+      success: false,
+      data: null,
+      message: 'Debes abrir un corte de caja antes de registrar el cobro.',
+      errors: ['CASH_SESSION_REQUIRED'],
     };
   }
   const res = await apiClient<Record<string, unknown>>('/payments', {

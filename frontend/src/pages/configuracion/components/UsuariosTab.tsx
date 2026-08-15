@@ -14,6 +14,7 @@ import { queryKeys } from '@/api/queryKeys';
 import * as settingsApi from '@/api/settingsApi';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSchoolContext } from '@/context/SchoolContext';
+import { FieldLimits, validateEmail, validatePassword, validatePhone } from '@/lib/validation/fields';
 
 /** Roles que pueden iniciar sesión en el portal staff (MVP). */
 const MVP_LOGIN_ROLE_CODES = new Set([
@@ -135,12 +136,18 @@ export default function UsuariosTab() {
   };
 
   const handleSave = async () => {
+    if (saving) return;
     const errs: Record<string, string> = {};
     if (!formNombre.trim()) errs.nombre = 'Ingresa el nombre completo';
-    if (!formEmail.trim() || !formEmail.includes('@')) errs.email = 'Ingresa un correo válido';
+    const emailErr = validateEmail(formEmail, true);
+    if (emailErr) errs.email = emailErr;
     if (!formRolId) errs.rol = 'Selecciona un rol';
-    if (!editingUser && !formPassword.trim()) errs.password = 'Define una contraseña';
-    else if (!editingUser && formPassword.trim().length < 8) errs.password = 'Mínimo 8 caracteres';
+    if (!editingUser) {
+      const pwdErr = validatePassword(formPassword);
+      if (pwdErr) errs.password = pwdErr;
+    }
+    const phoneErr = validatePhone(formTelefono, false);
+    if (phoneErr) errs.telefono = phoneErr;
     setFormErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
@@ -307,8 +314,8 @@ export default function UsuariosTab() {
                     <td className="px-4 py-3 text-xs text-foreground-500 text-right hidden md:table-cell" data-label="Último Acceso">{formatLastAccess(u.ultimoAcceso)}</td>
                     <td className="px-4 py-3 text-right" data-label="Acciones">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="xs" icon="ri-pencil-line" onClick={() => openEdit(u)} />
-                        <Button variant="ghost" size="xs" icon="ri-delete-bin-line" onClick={() => setDeleteTarget(u)} />
+                        <Button variant="ghost" size="xs" icon="ri-pencil-line" onClick={() => openEdit(u)} aria-label={`Editar ${u.nombre}`} />
+                        <Button variant="ghost" size="xs" icon="ri-delete-bin-line" onClick={() => setDeleteTarget(u)} aria-label={`Eliminar ${u.nombre}`} />
                       </div>
                     </td>
                   </tr>
@@ -335,8 +342,8 @@ export default function UsuariosTab() {
         }
       >
         <div className="space-y-4">
-          <Input label="Nombre Completo" required value={formNombre} onChange={(e) => { setFormNombre(e.target.value); if (formErrors.nombre) setFormErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={formErrors.nombre} placeholder="Ej. Ana García López" />
-          <Input label="Correo Electrónico" required type="email" value={formEmail} onChange={(e) => { setFormEmail(e.target.value); if (formErrors.email) setFormErrors((p) => { const n = { ...p }; delete n.email; return n; }); }} error={formErrors.email} placeholder="usuario@colegio.edu.mx" />
+          <Input label="Nombre Completo" required maxLength={FieldLimits.name} value={formNombre} onChange={(e) => { setFormNombre(e.target.value); if (formErrors.nombre) setFormErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={formErrors.nombre} placeholder="Ej. Ana García López" />
+          <Input label="Correo Electrónico" required type="email" maxLength={FieldLimits.email} value={formEmail} onChange={(e) => { setFormEmail(e.target.value); if (formErrors.email) setFormErrors((p) => { const n = { ...p }; delete n.email; return n; }); }} error={formErrors.email} placeholder="usuario@colegio.edu.mx" />
           <Select
             label="Rol"
             required
@@ -345,7 +352,7 @@ export default function UsuariosTab() {
             onChange={(e) => { setFormRolId(e.target.value); if (formErrors.rol) setFormErrors((p) => { const n = { ...p }; delete n.rol; return n; }); }}
             error={formErrors.rol}
           />
-          <Input label="Teléfono" value={formTelefono} onChange={(e) => setFormTelefono(e.target.value)} placeholder="+52 55 0000 0000" />
+          <Input label="Teléfono" maxLength={FieldLimits.phone} value={formTelefono} onChange={(e) => { setFormTelefono(e.target.value); if (formErrors.telefono) setFormErrors((p) => { const n = { ...p }; delete n.telefono; return n; }); }} error={formErrors.telefono} placeholder="+52 55 0000 0000" />
           <Input label="Sucursal" value={formSucursal} onChange={(e) => setFormSucursal(e.target.value)} placeholder="Se asigna la sucursal activa del contexto" disabled hint={branchId ? 'Se vinculará a la sucursal activa' : 'Sin sucursal activa en el contexto'} />
           {!editingUser && (
             <Input
@@ -355,7 +362,7 @@ export default function UsuariosTab() {
               value={formPassword}
               onChange={(e) => { setFormPassword(e.target.value); if (formErrors.password) setFormErrors((p) => { const n = { ...p }; delete n.password; return n; }); }}
               error={formErrors.password}
-              placeholder="Mínimo 8 caracteres"
+              placeholder="Mínimo 8 caracteres, mayúscula, minúscula y dígito"
               hint="El usuario la usará para iniciar sesión"
             />
           )}

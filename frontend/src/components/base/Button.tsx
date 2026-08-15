@@ -48,14 +48,14 @@ const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     ].join(' ');
 
     return (
-      <button ref={ref} className={cls} disabled={disabled || loading} {...props}>
+      <button ref={ref} className={cls} disabled={disabled || loading} aria-busy={loading || undefined} {...props}>
         {loading ? (
-          <i className="ri-loader-4-line animate-spin" />
+          <i className="ri-loader-4-line animate-spin" aria-hidden="true" />
         ) : icon ? (
-          <i className={icon} />
+          <i className={icon} aria-hidden="true" />
         ) : null}
         {children}
-        {iconRight && !loading && <i className={iconRight} />}
+        {iconRight && !loading && <i className={iconRight} aria-hidden="true" />}
       </button>
     );
   }

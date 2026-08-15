@@ -16,6 +16,25 @@ import * as settingsApi from '@/api/settingsApi';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
 import type { ConceptoPago } from '@/mocks/configuracion';
+import ModuleContextGate from '@/components/feature/ModuleContextGate';
+import { collectStudentInteractionIssues } from '@/lib/interaction/guards';
+import { confirmSoftWarnings } from '@/lib/interaction/confirmSoft';
+import { friendlyApiError, InteractionCodes, interactionMessage } from '@/lib/interaction/messages';
+import * as classroomsApi from '@/api/classroomsApi';
+import { useApiResource } from '@/hooks/useApiResource';
+import type { Salon } from '@/mocks/salones';
+import { resolveClassroomId, getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
+import { DOCUMENT_RULES_HINT } from '@/lib/documents/rules';
+import {
+  FieldLimits,
+  assignError,
+  validateBirthDate,
+  validateEmail,
+  validateMaxLen,
+  validatePhone,
+  validatePositiveNumber,
+  validateRequiredName,
+} from '@/lib/validation/fields';
 
 const enrollmentSteps: Step[] = [
   { id: 'datos', label: 'Datos del Alumno', subtitle: 'Información personal', icon: 'ri-user-line' },
@@ -165,6 +184,12 @@ export default function Inscripciones() {
   });
   const parents = parentsQuery.data?.data ?? [];
 
+  const classroomsQ = useApiResource({
+    queryKey: queryKeys.classrooms.list({ for: 'enrollment' }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+  });
+  const classrooms: Salon[] = classroomsQ.data ?? [];
+
   const conceptsQuery = useQuery({
     queryKey: queryKeys.settings.paymentConcepts(),
     queryFn: () => settingsApi.listPaymentConcepts(),
@@ -211,16 +236,36 @@ export default function Inscripciones() {
   const gradosDisponibles = data.nivel ? gradosPorNivel[data.nivel] || [] : [];
   const contextReady = isGuid(school.branchId) && isGuid(school.cycleId);
 
+  const assignmentSalon = useMemo(() => {
+    if (!data.nivel || !data.grado || !data.grupo) return null;
+    const levelLabel = niveles.find((n) => n.value === data.nivel)?.label || data.nivel;
+    const gradeLabel = `${data.grado}°`;
+    return getSalonDelAlumno(
+      levelLabel,
+      gradeLabel,
+      data.grupo,
+      school.branch?.name || '',
+      classrooms,
+      school.branchId
+    );
+  }, [data.nivel, data.grado, data.grupo, school.branch?.name, school.branchId, classrooms, niveles]);
+
   const validateStep = (current: number): Record<string, string> => {
     const newErrors: Record<string, string> = {};
     if (current === 0) {
-      if (!data.nombre.trim()) newErrors.nombre = 'El nombre es obligatorio';
-      if (!data.apellidoPaterno.trim()) newErrors.apellidoPaterno = 'El apellido paterno es obligatorio';
-      if (!data.fechaNacimiento) newErrors.fechaNacimiento = 'La fecha de nacimiento es obligatoria';
+      assignError(newErrors, 'nombre', validateRequiredName(data.nombre, 'El nombre'));
+      assignError(newErrors, 'apellidoPaterno', validateRequiredName(data.apellidoPaterno, 'El apellido paterno'));
+      assignError(newErrors, 'apellidoMaterno', validateMaxLen(data.apellidoMaterno, FieldLimits.name, 'Apellido materno'));
+      assignError(newErrors, 'fechaNacimiento', validateBirthDate(data.fechaNacimiento, true));
+      assignError(newErrors, 'email', validateEmail(data.email, false));
+      assignError(newErrors, 'telefono', validatePhone(data.telefono, false));
+      assignError(newErrors, 'direccion', validateMaxLen(data.direccion, FieldLimits.address, 'Dirección'));
+      assignError(newErrors, 'alergias', validateMaxLen(data.alergias, FieldLimits.allergies, 'Alergias'));
+      assignError(newErrors, 'notasMedicas', validateMaxLen(data.notasMedicas, FieldLimits.medicalNotes, 'Notas médicas'));
       if (!data.genero) newErrors.genero = 'Selecciona el género';
     }
     if (current === 1) {
-      if (!isGuid(data.padreId)) newErrors.padreId = 'Selecciona un padre o tutor registrado';
+      // Tutor mínimo es soft al confirmar (misma matriz que alumno).
     }
     if (current === 3) {
       if (!data.nivel) newErrors.nivel = 'Selecciona un nivel';
@@ -229,12 +274,24 @@ export default function Inscripciones() {
       if (!contextReady) {
         newErrors.contexto = 'Selecciona sucursal y ciclo en el encabezado antes de continuar';
       }
+      if (data.nivel && data.grado && data.grupo && contextReady) {
+        const levelLabel = niveles.find((n) => n.value === data.nivel)?.label || data.nivel;
+        const gradeLabel = `${data.grado}°`;
+        const salon = getSalonDelAlumno(
+          levelLabel,
+          gradeLabel,
+          data.grupo,
+          school.branch?.name || '',
+          classrooms,
+          school.branchId
+        );
+        if (!salon) {
+          newErrors.grupo = interactionMessage(InteractionCodes.REL_GROUP_NO_CLASSROOM);
+        }
+      }
     }
     if (current === 4 && data.generateCharge) {
-      const amount = Number(data.chargeAmount);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        newErrors.chargeAmount = 'Indica un monto válido para el cargo';
-      }
+      assignError(newErrors, 'chargeAmount', validatePositiveNumber(data.chargeAmount, 'El monto del cargo'));
     }
     return newErrors;
   };
@@ -249,6 +306,7 @@ export default function Inscripciones() {
   };
 
   const handleConfirmar = async () => {
+    if (savingEnrollment) return;
     const newErrors = validateStep(4);
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) return;
@@ -257,56 +315,110 @@ export default function Inscripciones() {
       return;
     }
 
-    setSavingEnrollment(true);
+    const levelLabel = niveles.find((n) => n.value === data.nivel)?.label || data.nivel;
+    const gradeLabel = data.grado ? `${data.grado}°` : '';
     const parentIds = [data.padreId, data.tutorId].filter((id) => isGuid(id));
-    const lastName = `${data.apellidoPaterno} ${data.apellidoMaterno}`.trim();
-    const amount = Number(data.chargeAmount) || 0;
 
-    const res = await submitEnrollment({
+    const { hard, soft } = collectStudentInteractionIssues({
       branchId: school.branchId,
       cycleId: school.cycleId,
-      student: {
-        firstName: data.nombre.trim(),
-        lastName,
-        maternalLastName: data.apellidoMaterno.trim(),
-        birthDate: data.fechaNacimiento,
-        gender: data.genero,
-        email: data.email.trim(),
-        phone: data.telefono.trim(),
-        address: data.direccion.trim(),
-        bloodType: data.tipoSangre,
-        allergies: data.alergias,
-        medicalNotes: data.notasMedicas,
-      },
-      parentIds,
-      level: data.nivel,
-      grade: data.grado,
+      firstName: data.nombre,
+      lastName: data.apellidoPaterno,
+      level: levelLabel,
+      grade: gradeLabel,
       group: data.grupo,
-      scholarshipPercent: 0,
-      documentChecklistIds: data.documentosMarcados,
-      charge: data.generateCharge
-        ? {
-            enabled: true,
-            paymentConceptId: data.paymentConceptId || undefined,
-            conceptName: selectedConcept?.nombre || 'Inscripción',
-            conceptType: selectedConcept?.tipo || 'unico',
-            grossAmount: amount,
-          }
-        : { enabled: false, conceptName: '', conceptType: 'unico', grossAmount: 0 },
+      branchName: school.branch?.name || '',
+      linkedParentIds: parentIds,
+      classrooms,
     });
 
-    setSavingEnrollment(false);
+    const missingRequiredDocs = documentosChecklist.filter(
+      (d) => d.requerido && !data.documentosMarcados.includes(d.id)
+    );
+    if (missingRequiredDocs.length > 0) {
+      soft.push({
+        code: InteractionCodes.REL_ENROLLMENT_DOCS,
+        message: interactionMessage(InteractionCodes.REL_ENROLLMENT_DOCS),
+      });
+    }
 
-    if (!res.success || !res.data?.studentId) {
-      showToast(res.message || 'No se pudo completar la inscripción', 'error');
+    if (hard.length > 0) {
+      showToast(hard[0].message, 'error');
+      if (hard[0].code === 'REL_GROUP_NO_CLASSROOM') {
+        setErrors((prev) => ({ ...prev, grupo: hard[0].message }));
+        setStep(3);
+      }
       return;
     }
 
-    setResult(res.data);
-    if (res.data.warnings.length > 0) {
-      showToast(res.data.warnings[0], 'info');
-    } else {
-      showToast('Inscripción completada correctamente', 'success');
+    const ok = await confirmSoftWarnings(soft);
+    if (!ok) return;
+
+    setSavingEnrollment(true);
+    try {
+      const lastName = `${data.apellidoPaterno} ${data.apellidoMaterno}`.trim();
+      const amount = Number(data.chargeAmount) || 0;
+      const classroomId = resolveClassroomId(
+        levelLabel,
+        gradeLabel,
+        data.grupo,
+        school.branch?.name || '',
+        classrooms,
+        school.branchId
+      );
+
+      const res = await submitEnrollment({
+        branchId: school.branchId,
+        cycleId: school.cycleId,
+        student: {
+          firstName: data.nombre.trim(),
+          lastName,
+          maternalLastName: data.apellidoMaterno.trim(),
+          birthDate: data.fechaNacimiento,
+          gender: data.genero,
+          email: data.email.trim(),
+          phone: data.telefono.trim(),
+          address: data.direccion.trim(),
+          bloodType: data.tipoSangre,
+          allergies: data.alergias,
+          medicalNotes: data.notasMedicas,
+        },
+        parentIds,
+        level: data.nivel,
+        grade: data.grado,
+        group: data.grupo,
+        classroomId,
+        scholarshipPercent: 0,
+        documentChecklistIds: data.documentosMarcados,
+        charge: data.generateCharge
+          ? {
+              enabled: true,
+              paymentConceptId: data.paymentConceptId || undefined,
+              conceptName: selectedConcept?.nombre || 'Inscripción',
+              conceptType: selectedConcept?.tipo || 'unico',
+              grossAmount: amount,
+            }
+          : { enabled: false, conceptName: '', conceptType: 'unico', grossAmount: 0 },
+      });
+
+      if (!res.success || !res.data?.studentId) {
+        showToast(friendlyApiError(res) || 'No se pudo completar la inscripción', 'error');
+        return;
+      }
+
+      setResult(res.data);
+      if (res.data.warnings.length > 0) {
+        showToast(res.data.warnings[0], 'info');
+        if (res.data.warnings.length > 1) {
+          showToast(`${res.data.warnings.length - 1} aviso(s) más — revisa el resumen.`, 'info');
+        }
+      } else if (res.data.status === 'completed') {
+        showToast('Inscripción completada correctamente', 'success');
+      } else {
+        showToast(res.data.message || 'Alumno creado; inscripción en borrador', 'info');
+      }
+    } finally {
+      setSavingEnrollment(false);
     }
   };
 
@@ -319,14 +431,30 @@ export default function Inscripciones() {
 
   if (result) {
     return (
+      <ModuleContextGate>
       <MainLayout>
         <div className="max-w-[720px] mx-auto py-16 text-center">
-          <div className="w-20 h-20 mx-auto rounded-full bg-emerald-100 flex items-center justify-center mb-6">
-            <i className="ri-check-line text-3xl text-emerald-600" />
+          <div
+            className={`w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-6 ${
+              result.status === 'completed' ? 'bg-emerald-100' : 'bg-amber-100'
+            }`}
+          >
+            <i
+              className={`text-3xl ${
+                result.status === 'completed'
+                  ? 'ri-check-line text-emerald-600'
+                  : 'ri-error-warning-line text-amber-600'
+              }`}
+            />
           </div>
-          <h1 className="text-2xl font-bold text-foreground-900 mb-2">Inscripción completada</h1>
+          <h1 className="text-2xl font-bold text-foreground-900 mb-2">
+            {result.status === 'completed' ? 'Inscripción completada' : 'Inscripción parcial'}
+          </h1>
           <p className="text-sm text-foreground-500 mb-8">
-            El alumno quedó registrado y vinculado a la inscripción.
+            {result.message ||
+              (result.status === 'completed'
+                ? 'El alumno quedó registrado y vinculado a la inscripción.'
+                : 'El alumno se creó, pero la inscripción no quedó marcada como completada. Revisa los avisos.')}
           </p>
           <Card className="inline-block text-left mb-6 w-full max-w-md">
             <div className="space-y-2">
@@ -390,10 +518,12 @@ export default function Inscripciones() {
           </div>
         </div>
       </MainLayout>
+      </ModuleContextGate>
     );
   }
 
   return (
+    <ModuleContextGate>
     <MainLayout>
       <div className="max-w-[900px] mx-auto">
         <div className="mb-8">
@@ -418,21 +548,21 @@ export default function Inscripciones() {
             <div>
               <h3 className="text-sm font-semibold text-foreground-900 mb-5">Datos Personales del Alumno</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="Nombre(s)" required value={data.nombre} onChange={(e) => update('nombre', e.target.value)} error={errors.nombre} placeholder="Ej. Carlos" />
-                <Input label="Apellido Paterno" required value={data.apellidoPaterno} onChange={(e) => update('apellidoPaterno', e.target.value)} error={errors.apellidoPaterno} placeholder="Ej. Ruiz" />
-                <Input label="Apellido Materno" value={data.apellidoMaterno} onChange={(e) => update('apellidoMaterno', e.target.value)} placeholder="Ej. Mendoza" />
+                <Input label="Nombre(s)" required maxLength={FieldLimits.name} value={data.nombre} onChange={(e) => update('nombre', e.target.value)} error={errors.nombre} placeholder="Ej. Carlos" />
+                <Input label="Apellido Paterno" required maxLength={FieldLimits.name} value={data.apellidoPaterno} onChange={(e) => update('apellidoPaterno', e.target.value)} error={errors.apellidoPaterno} placeholder="Ej. Ruiz" />
+                <Input label="Apellido Materno" maxLength={FieldLimits.name} value={data.apellidoMaterno} onChange={(e) => update('apellidoMaterno', e.target.value)} placeholder="Ej. Mendoza" />
                 <Input label="Fecha de Nacimiento" type="date" required value={data.fechaNacimiento} onChange={(e) => update('fechaNacimiento', e.target.value)} error={errors.fechaNacimiento} />
                 <Select label="Género" required options={[{ value: 'M', label: 'Masculino' }, { value: 'F', label: 'Femenino' }]} value={data.genero} onChange={(e) => update('genero', e.target.value)} error={errors.genero} placeholder="Seleccionar género" />
                 <Select label="Tipo de Sangre" options={tiposSangre} value={data.tipoSangre} onChange={(e) => update('tipoSangre', e.target.value)} placeholder="Seleccionar tipo" />
-                <Input label="Email" type="email" value={data.email} onChange={(e) => update('email', e.target.value)} placeholder="alumno@email.com" />
-                <Input label="Teléfono" value={data.telefono} onChange={(e) => update('telefono', e.target.value)} placeholder="+52 55 0000 0000" />
+                <Input label="Email" type="email" maxLength={FieldLimits.email} value={data.email} onChange={(e) => update('email', e.target.value)} error={errors.email} placeholder="alumno@email.com" />
+                <Input label="Teléfono" maxLength={FieldLimits.phone} value={data.telefono} onChange={(e) => update('telefono', e.target.value)} error={errors.telefono} placeholder="+52 55 0000 0000" />
               </div>
               <div className="mt-4">
-                <Input label="Dirección" value={data.direccion} onChange={(e) => update('direccion', e.target.value)} placeholder="Calle, Número, Colonia, Ciudad" />
+                <Input label="Dirección" maxLength={FieldLimits.address} value={data.direccion} onChange={(e) => update('direccion', e.target.value)} error={errors.direccion} placeholder="Calle, Número, Colonia, Ciudad" />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                <Input label="Alergias" value={data.alergias} onChange={(e) => update('alergias', e.target.value)} placeholder="Ej. Penicilina, Nuez..." />
-                <Input label="Notas Médicas" value={data.notasMedicas} onChange={(e) => update('notasMedicas', e.target.value)} placeholder="Condiciones especiales" />
+                <Input label="Alergias" maxLength={FieldLimits.allergies} value={data.alergias} onChange={(e) => update('alergias', e.target.value)} error={errors.alergias} placeholder="Ej. Penicilina, Nuez..." />
+                <Input label="Notas Médicas" maxLength={FieldLimits.medicalNotes} value={data.notasMedicas} onChange={(e) => update('notasMedicas', e.target.value)} error={errors.notasMedicas} placeholder="Condiciones especiales" />
               </div>
             </div>
           )}
@@ -441,20 +571,19 @@ export default function Inscripciones() {
             <div>
               <h3 className="text-sm font-semibold text-foreground-900 mb-1">Padres o Tutores</h3>
               <p className="text-xs text-foreground-500 mb-5">
-                Selecciona tutores ya registrados. Si no hay, créalos primero en Padres.
+                Selecciona tutores ya registrados (recomendado). Puedes inscribir ahora y vincularlos después.
               </p>
               {parentsQuery.isLoading ? (
                 <p className="text-sm text-foreground-500 py-6">Cargando tutores...</p>
               ) : parents.length === 0 ? (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 mb-4">
-                  No hay tutores en el sistema. Registra al menos uno antes de inscribir.
+                  No hay tutores en el sistema. Puedes continuar y vincularlos después, o registrar uno en Padres.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <Select
                       label="Padre o Tutor Principal"
-                      required
                       options={[
                         { value: '', label: 'Seleccionar padre/tutor...' },
                         ...parents.map((p) => ({
@@ -513,7 +642,8 @@ export default function Inscripciones() {
             <div>
               <h3 className="text-sm font-semibold text-foreground-900 mb-1">Checklist de documentos</h3>
               <p className="text-xs text-foreground-500 mb-5">
-                Marca lo que el responsable entregará. La subida de archivos se hace después en el expediente del alumno.
+                Marca lo que el responsable entregará. Los archivos ({DOCUMENT_RULES_HINT}) se suben después en el
+                expediente del alumno.
               </p>
               <div className="mb-4 rounded-lg border border-secondary-200 bg-background-50 p-3 text-xs text-foreground-600 flex gap-2">
                 <i className="ri-information-line text-primary-500 mt-0.5" />
@@ -611,22 +741,40 @@ export default function Inscripciones() {
                 />
               </div>
               {data.nivel && data.grado && data.grupo && contextReady && (
-                <Card className="mt-5 bg-emerald-50/50 border-emerald-200" padding="md">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 flex items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
-                      <i className="ri-checkbox-circle-line text-lg" />
+                assignmentSalon ? (
+                  <Card className="mt-5 bg-emerald-50/50 border-emerald-200" padding="md">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 flex items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
+                        <i className="ri-door-open-line text-lg" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-foreground-900">
+                          Salón {assignmentSalon.nombre}
+                        </p>
+                        <p className="text-xs text-foreground-500">
+                          {niveles.find((n) => n.value === data.nivel)?.label} — Grado {data.grado}° Grupo{' '}
+                          {data.grupo} · Vinculado por nivel, grado y grupo
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground-900">
-                        {niveles.find((n) => n.value === data.nivel)?.label} — Grado {data.grado}° Grupo{' '}
-                        {data.grupo}
-                      </p>
-                      <p className="text-xs text-foreground-500">
-                        {school.branch?.name} · {school.cycle?.name} · Matrícula al confirmar
-                      </p>
+                  </Card>
+                ) : (
+                  <Card className="mt-5 bg-amber-50/70 border-amber-200" padding="md">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 flex items-center justify-center rounded-lg bg-amber-100 text-amber-700">
+                        <i className="ri-error-warning-line text-lg" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-amber-900">
+                          Sin salón para esta combinación
+                        </p>
+                        <p className="text-xs text-amber-800 mt-0.5">
+                          {interactionMessage(InteractionCodes.REL_GROUP_NO_CLASSROOM)}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                </Card>
+                  </Card>
+                )
               )}
             </div>
           )}
@@ -812,5 +960,6 @@ export default function Inscripciones() {
         </Card>
       </div>
     </MainLayout>
+    </ModuleContextGate>
   );
 }

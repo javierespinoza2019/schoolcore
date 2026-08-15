@@ -159,10 +159,6 @@ export default function CatalogosTab({
     setPermisosOpen(true);
   };
 
-  const handlePermisosSave = (_rolId: string, _selectedMods: string[]) => {
-    // RBAC real pendiente — PermisosModal ya no finge éxito
-  };
-
   return (
     <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
@@ -282,7 +278,6 @@ export default function CatalogosTab({
         open={permisosOpen}
         onClose={() => setPermisosOpen(false)}
         rol={permisosRol}
-        onSave={handlePermisosSave}
       />
 
       <DeleteConfirmModal

@@ -75,7 +75,7 @@ export default function VincularAlumnoModal({
   const selectedStudent = filtered.find((s) => s.id === selectedId);
 
   const handleVincular = () => {
-    if (!selectedId) return;
+    if (!selectedId || linking) return;
     onVincular(selectedId);
   };
 

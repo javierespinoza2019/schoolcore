@@ -17,6 +17,7 @@ BEGIN
     )
     SELECT FORMAT(m.MonthStart, 'yyyy-MM') AS Period,
            ISNULL((SELECT SUM(p.Amount) FROM dbo.Payment p WHERE p.TenantId=@TenantId AND p.IsDeleted=0
+                AND ISNULL(p.Status, N'posted') = N'posted'
                 AND (@BranchId IS NULL OR p.BranchId=@BranchId)
                 AND p.PaidAt >= m.MonthStart AND p.PaidAt < DATEADD(MONTH,1,m.MonthStart)), 0) AS Income,
            ISNULL((SELECT SUM(e.Amount) FROM dbo.Expense e WHERE e.TenantId=@TenantId AND e.IsDeleted=0

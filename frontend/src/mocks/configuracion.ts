@@ -1,4 +1,11 @@
-export interface RolPermiso { id: string; nombre: string; usuarios: number; descripcion: string; }
+export interface RolPermiso {
+  id: string;
+  nombre: string;
+  usuarios: number;
+  descripcion: string;
+  /** Role.Code del backend (p.ej. Cashier). */
+  code?: string;
+}
 
 export const configInstitucion = {
   nombre: 'SchoolCore',

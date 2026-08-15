@@ -24,21 +24,26 @@ function Sparkline({ data, color, height = 32 }: { data: number[]; color: string
     return () => clearTimeout(timer);
   }, []);
 
+  if (!data.length) {
+    return <div className="w-20 h-8" aria-hidden="true" />;
+  }
+
   const min = Math.min(...data);
   const max = Math.max(...data);
   const range = max - min || 1;
   const width = 80;
   const padding = 2;
   const chartW = width - padding * 2;
+  const denom = Math.max(data.length - 1, 1);
 
   const points = data.map((d, i) => {
-    const x = padding + (i / (data.length - 1)) * chartW;
+    const x = padding + (i / denom) * chartW;
     const y = height - padding - ((d - min) / range) * (height - padding * 2);
     return `${x},${y}`;
   });
 
   const pathD = data.map((d, i) => {
-    const x = padding + (i / (data.length - 1)) * chartW;
+    const x = padding + (i / denom) * chartW;
     const y = height - padding - ((d - min) / range) * (height - padding * 2);
     return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
   }).join(' ');
@@ -46,7 +51,7 @@ function Sparkline({ data, color, height = 32 }: { data: number[]; color: string
   const areaD = `${pathD} L ${padding + chartW},${height - padding} L ${padding},${height - padding} Z`;
 
   return (
-    <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} className="w-20 h-8 overflow-visible">
+    <svg ref={svgRef} viewBox={`0 0 ${width} ${height}`} className="w-20 h-8 overflow-visible" aria-hidden="true">
       <defs>
         <linearGradient id={`spark-fill-${color.replace(/[^a-zA-Z0-9]/g, '')}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} stopOpacity="0.2" />

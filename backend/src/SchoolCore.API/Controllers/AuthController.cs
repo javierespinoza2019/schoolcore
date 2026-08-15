@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using SchoolCore.Business.Services;
 using SchoolCore.Common.Responses;
+using SchoolCore.Common.Security;
 using SchoolCore.Models.Dtos.Auth;
 
 namespace SchoolCore.API.Controllers;
@@ -16,10 +17,12 @@ namespace SchoolCore.API.Controllers;
 public sealed class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IPermissionResolver _permissionResolver;
 
-    public AuthController(IAuthService authService)
+    public AuthController(IAuthService authService, IPermissionResolver permissionResolver)
     {
         _authService = authService;
+        _permissionResolver = permissionResolver;
     }
 
     /// <summary>
@@ -127,25 +130,21 @@ public sealed class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Permisos del usuario autenticado (ViewCode + acciones).
-    /// Stub MVP: wildcard hasta catálogo RolePermission; el FE trata lista vacía como allow-all.
+    /// Permisos del usuario autenticado (ViewCode + acciones) desde RolePermission / fallback matriz.
     /// </summary>
     [HttpGet("me/permissions")]
     [Authorize]
     [ProducesResponseType(typeof(ApiResponse<IReadOnlyList<object>>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public ActionResult<ApiResponse<IReadOnlyList<object>>> MyPermissions()
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<object>>>> MyPermissions(CancellationToken cancellationToken)
     {
-        // MVP: sin matriz ViewCode en BD — devolver wildcard para SuperAdmin / Director;
-        // resto lista vacía (FE mantiene stub allow-all si size=0).
-        var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var isPrivileged = roles.Contains("SuperAdmin") || roles.Contains("Director");
+        var roles = User.FindAll(ClaimTypes.Role).Select(c => c.Value);
+        var grants = await _permissionResolver.ResolveAsync(roles, cancellationToken);
+        var payload = grants
+            .Select(g => (object)new { viewCode = g.ViewCode, actions = g.Actions })
+            .ToList();
 
-        IReadOnlyList<object> grants = isPrivileged
-            ? new object[] { new { viewCode = "*", actions = new[] { "*" } } }
-            : Array.Empty<object>();
-
-        return Ok(ApiResponse<IReadOnlyList<object>>.Ok(grants));
+        return Ok(ApiResponse<IReadOnlyList<object>>.Ok(payload));
     }
 
     private string? GetClientIp() =>

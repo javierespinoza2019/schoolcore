@@ -8,6 +8,7 @@ GO
 CREATE OR ALTER PROCEDURE dbo.sp_Payment_GetById @TenantId UNIQUEIDENTIFIER, @Id UNIQUEIDENTIFIER
 AS BEGIN SET NOCOUNT ON;
     SELECT p.Id, p.TenantId, p.BranchId, p.StudentId, p.ChargeId, p.CashSessionId, p.PaymentMethodId, p.Amount, p.Folio, p.PaidAt, p.Reference, p.Notes, p.CreatedAt,
+           p.Status, p.VoidReason, p.VoidedAt, p.VoidedBy, p.ReverseCashSessionId, p.ReverseMovementId,
            s.FirstName + N' ' + s.LastName AS StudentName, pm.Name AS PaymentMethodName
     FROM dbo.Payment p
     INNER JOIN dbo.Student s ON s.Id=p.StudentId

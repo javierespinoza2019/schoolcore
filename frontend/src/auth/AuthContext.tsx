@@ -9,6 +9,7 @@ import {
 import * as authApi from '@/api/authApi';
 import type { AuthUser, LoginRequest } from '@/api/types';
 import { toAuthUser } from '@/api/types';
+import { friendlyApiError } from '@/lib/interaction/messages';
 import {
   clearTokens,
   getAccessToken,
@@ -39,7 +40,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!res.success || !res.data?.accessToken || !res.data?.refreshToken || !res.data?.userId) {
         return {
           ok: false,
-          message: res.message || res.errors?.[0] || 'No se pudo iniciar sesión.',
+          message: friendlyApiError(res) || 'No se pudo iniciar sesión.',
         };
       }
 

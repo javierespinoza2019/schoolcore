@@ -36,18 +36,17 @@ export function unwrapList<T>(data: PagedResult<T> | T[] | null | undefined): T[
 }
 
 /**
- * Intenta la API; si falla (endpoint ausente / red), usa fallback mock **solo en development**.
- * En QA/Production no se muestran mocks silenciosos (evita demos engañosas).
- * Si la API responde success con lista vacía → empty state real (no mock).
- *
- * Opt-in: `options.allowFallback: true` fuerza mock (p.ej. endpoints aún no implementados).
+ * Intenta la API; si falla, usa fallback mock **solo en development**.
+ * En QA/Production nunca se permiten mocks (aunque se pase allowFallback).
+ * Lista vacía de API = empty state real.
  */
 export async function fetchOrFallback<T>(
   request: () => Promise<ApiResponse<T>>,
   fallback: T | (() => T),
   options?: { allowFallback?: boolean }
 ): Promise<FetchResult<T>> {
-  const allowFallback = options?.allowFallback ?? isDevelopment;
+  // Fail-closed fuera de development: jamás mocks en QA/prod.
+  const allowFallback = isDevelopment && options?.allowFallback !== false;
 
   try {
     const res = await request();
@@ -56,12 +55,10 @@ export async function fetchOrFallback<T>(
     }
 
     if (allowFallback) {
-      if (isDevelopment) {
-        console.warn(
-          '[SchoolCore API] Fallback mock —',
-          res.message || res.errors?.join(', ') || 'sin data'
-        );
-      }
+      console.warn(
+        '[SchoolCore API] Fallback mock —',
+        res.message || res.errors?.join(', ') || 'sin data'
+      );
       const data = typeof fallback === 'function' ? (fallback as () => T)() : fallback;
       return { data, source: 'fallback', message: res.message };
     }
@@ -69,9 +66,7 @@ export async function fetchOrFallback<T>(
     throw new Error(res.message || res.errors?.join(', ') || 'Request failed');
   } catch (err) {
     if (allowFallback) {
-      if (isDevelopment) {
-        console.warn('[SchoolCore API] Fallback mock por excepción:', err);
-      }
+      console.warn('[SchoolCore API] Fallback mock por excepción:', err);
       const data = typeof fallback === 'function' ? (fallback as () => T)() : fallback;
       return { data, source: 'fallback', message: 'Endpoint no disponible' };
     }

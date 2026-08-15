@@ -6,12 +6,13 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   hint?: string;
   icon?: string;
   iconRight?: string;
+  iconRightAriaLabel?: string;
   onIconClick?: () => void;
   required?: boolean;
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, icon, iconRight, onIconClick, className = '', id, required, ...props }, ref) => {
+  ({ label, error, hint, icon, iconRight, iconRightAriaLabel, onIconClick, className = '', id, required, ...props }, ref) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
 
     return (
@@ -24,13 +25,22 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         )}
         <div className="relative">
           {icon && (
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground-400">
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground-400" aria-hidden="true">
               <i className={`${icon} text-sm`} />
             </div>
           )}
           <input
             ref={ref}
             id={inputId}
+            aria-invalid={error ? true : undefined}
+            aria-required={required || undefined}
+            aria-describedby={
+              error && inputId
+                ? `${inputId}-error`
+                : hint && inputId
+                  ? `${inputId}-hint`
+                  : undefined
+            }
             className={[
               'w-full rounded-md border bg-background-50 text-sm text-foreground-900 placeholder:text-foreground-300',
               'transition-all duration-150 outline-none',
@@ -49,14 +59,23 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
             <button
               type="button"
               onClick={onIconClick}
+              aria-label={iconRightAriaLabel || 'Acción del campo'}
               className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-foreground-400 hover:text-foreground-600 rounded"
             >
-              <i className={`${iconRight} text-sm`} />
+              <i className={`${iconRight} text-sm`} aria-hidden="true" />
             </button>
           )}
         </div>
-        {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
-        {hint && !error && <p className="mt-1 text-xs text-foreground-400">{hint}</p>}
+        {error && (
+          <p id={inputId ? `${inputId}-error` : undefined} className="mt-1 text-xs text-red-500" role="alert">
+            {error}
+          </p>
+        )}
+        {hint && !error && (
+          <p id={inputId ? `${inputId}-hint` : undefined} className="mt-1 text-xs text-foreground-400">
+            {hint}
+          </p>
+        )}
       </div>
     );
   }

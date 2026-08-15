@@ -83,8 +83,11 @@ export async function submitEnrollment(
   const schoolCycleId = payload.schoolCycleId ?? payload.cycleId;
   const warnings: string[] = [];
 
-  if (!isGuid(branchId) || !isGuid(schoolCycleId)) {
-    return fail('Selecciona sucursal y ciclo escolar válidos en el selector de contexto.');
+  if (!isGuid(branchId)) {
+    return fail('Selecciona una sucursal válida en el selector de contexto.', ['CTX_NO_BRANCH']);
+  }
+  if (!isGuid(schoolCycleId)) {
+    return fail('Selecciona un ciclo escolar válido en el selector de contexto.', ['CTX_NO_CYCLE']);
   }
 
   if (!payload.student.firstName?.trim() || !payload.student.lastName?.trim()) {
@@ -92,8 +95,11 @@ export async function submitEnrollment(
   }
 
   const parentIds = (payload.parentIds ?? []).filter((id) => isGuid(id));
-  if (parentIds.length === 0) {
-    return fail('Selecciona al menos un padre/tutor registrado.');
+
+  if (payload.charge?.enabled) {
+    if (!Number.isFinite(payload.charge.grossAmount) || payload.charge.grossAmount <= 0) {
+      return fail('El cargo de inscripción debe ser mayor a 0.', ['CHARGE_AMOUNT']);
+    }
   }
 
   const created = await apiClient<Record<string, unknown>>('/enrollments', {
@@ -122,7 +128,7 @@ export async function submitEnrollment(
       }),
       step4DocumentsJson: JSON.stringify({
         checklistIds: payload.documentChecklistIds ?? [],
-        note: 'Checklist UI; upload real en expediente del alumno.',
+        note: 'Checklist UI; archivos reales (PDF/PNG/JPG, máx. 5 MB) se suben en el expediente.',
       }),
       step5FinanceJson: JSON.stringify(payload.charge ?? {}),
     },
@@ -130,8 +136,8 @@ export async function submitEnrollment(
 
   if (!wizard.success) {
     return fail(
-      wizard.message ?? 'No se pudo guardar el wizard de inscripción.',
-      wizard.errors ?? []
+      `Se creó el borrador ${enrollmentNumber || enrollmentId}, pero no se pudo guardar el wizard. Revisa Inscripciones o reintenta.`,
+      ['ENROLLMENT_DRAFT_ORPHAN', ...(wizard.errors ?? [])]
     );
   }
 
@@ -188,7 +194,10 @@ export async function submitEnrollment(
   });
 
   if (!completed.success) {
-    warnings.push(completed.message || 'El alumno se creó, pero no se marcó la inscripción como completada.');
+    warnings.push(
+      completed.message ||
+        'El alumno se creó, pero la inscripción quedó en borrador (no se marcó como completada).'
+    );
   }
 
   const status = completed.success
@@ -222,10 +231,17 @@ export async function submitEnrollment(
     } else {
       warnings.push(
         chargeRes.message ||
-          'Inscripción OK, pero no se pudo generar el cargo. Créalo desde Finanzas.'
+          'Alumno creado, pero no se pudo generar el cargo. Créalo desde Finanzas.'
       );
     }
   }
+
+  const summaryMessage =
+    status === 'completed'
+      ? warnings.length > 0
+        ? 'Inscripción completada con avisos.'
+        : 'Inscripción completada.'
+      : 'Alumno creado; la inscripción quedó en borrador. Revisa avisos.';
 
   return {
     success: true,
@@ -238,12 +254,9 @@ export async function submitEnrollment(
       chargeNetAmount,
       chargeConceptName,
       warnings,
-      message:
-        status === 'completed'
-          ? 'Inscripción completada.'
-          : 'Alumno creado; inscripción quedó en borrador.',
+      message: summaryMessage,
     },
-    message: null,
+    message: summaryMessage,
     errors: [],
   };
 }

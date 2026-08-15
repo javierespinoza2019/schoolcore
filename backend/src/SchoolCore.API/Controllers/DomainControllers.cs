@@ -209,6 +209,10 @@ public sealed class FinanceController : ControllerBase
     public async Task<ActionResult<ApiResponse<PaymentDto>>> CreatePayment([FromBody] CreatePaymentRequest request, CancellationToken ct)
         => Ok(ApiResponse<PaymentDto>.Ok(await _service.CreatePaymentAsync(request, ct)));
 
+    [HttpPost("payments/{id:guid}/reverse")]
+    public async Task<ActionResult<ApiResponse<PaymentDto>>> ReversePayment(Guid id, [FromBody] ReversePaymentRequest request, CancellationToken ct)
+        => Ok(ApiResponse<PaymentDto>.Ok(await _service.ReversePaymentAsync(id, request, ct)));
+
     [HttpGet("expenses")]
     public async Task<ActionResult<ApiResponse<PagedResult<ExpenseDto>>>> ListExpenses([FromQuery] Guid? branchId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default)
         => Ok(ApiResponse<PagedResult<ExpenseDto>>.Ok(await _service.ListExpensesAsync(branchId, new PagedRequest { Page = page, PageSize = pageSize }, ct)));

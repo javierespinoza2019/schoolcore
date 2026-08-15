@@ -68,6 +68,10 @@ export const queryKeys = {
     users: (params?: Record<string, unknown>) => ['settings', 'users', params] as const,
     emailTemplates: () => ['settings', 'email-templates'] as const,
   },
+  featureFlags: {
+    all: ['featureFlags'] as const,
+    list: (branchId?: string | null) => ['featureFlags', 'list', branchId ?? null] as const,
+  },
   context: {
     timezone: (branchId?: string | null) => ['context', 'timezone', branchId ?? null] as const,
   },
@@ -88,4 +92,5 @@ export const CONTEXT_DEPENDENT_KEY_PREFIXES = [
   'dashboard',
   'notifications',
   'enrollments',
+  'featureFlags',
 ] as const;

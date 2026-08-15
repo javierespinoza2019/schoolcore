@@ -16,6 +16,8 @@ import { useToast } from '@/components/base/Toast';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
+import { friendlyApiError } from '@/lib/interaction/messages';
+import { newPaymentIdempotencyKey } from '@/lib/finance/idempotency';
 
 interface RegistrarPagoModalProps {
   open: boolean;
@@ -45,6 +47,7 @@ export default function RegistrarPagoModal({
   const [reference, setReference] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [idempotencyKey, setIdempotencyKey] = useState('');
 
   const openSessionQ = useQuery({
     queryKey: queryKeys.cash.open(String(branchId ?? '')),
@@ -82,13 +85,23 @@ export default function RegistrarPagoModal({
     setReference('');
     setErrors({});
     setSaving(false);
+    setIdempotencyKey('');
   }, [open, student.id]);
+
+  useEffect(() => {
+    if (open && isGuid(chargeId)) {
+      setIdempotencyKey(newPaymentIdempotencyKey(chargeId));
+    } else {
+      setIdempotencyKey('');
+    }
+  }, [open, chargeId]);
 
   useEffect(() => {
     if (!paymentMethodId && methods.length > 0) setPaymentMethodId(methods[0].id);
   }, [methods, paymentMethodId]);
 
   const handleSubmit = async () => {
+    if (saving) return;
     const errs: Record<string, string> = {};
     if (!isGuid(branchId)) errs.branch = 'Sucursal inválida';
     if (!isGuid(chargeId)) errs.chargeId = 'Selecciona un cargo pendiente';
@@ -107,13 +120,13 @@ export default function RegistrarPagoModal({
       paymentMethodId,
       cashSessionId: openSession!.id,
       reference: reference.trim() || undefined,
-      idempotencyKey: `pay-${chargeId}-${Date.now()}`,
+      idempotencyKey: idempotencyKey || newPaymentIdempotencyKey(chargeId),
       concept: selectedCharge.conceptName,
     });
     setSaving(false);
 
     if (!res.success || !res.data) {
-      showToast(res.message || 'No se pudo registrar el pago', 'error');
+      showToast(friendlyApiError(res) || 'No se pudo registrar el pago', 'error');
       return;
     }
 
@@ -168,6 +181,7 @@ export default function RegistrarPagoModal({
             size="sm"
             icon="ri-check-line"
             loading={saving}
+            disabled={saving}
             onClick={() => void handleSubmit()}
           >
             Cobrar

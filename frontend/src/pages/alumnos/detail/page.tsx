@@ -23,6 +23,7 @@ import { getProfesorDelAlumno, getSalonDelAlumno } from '@/pages/alumnos/helpers
 import { useToast } from '@/components/base/Toast';
 import * as studentsApi from '@/api/studentsApi';
 import * as classroomsApi from '@/api/classroomsApi';
+import { listCharges } from '@/api/financeApi';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
 import { useApiResource } from '@/hooks/useApiResource';
@@ -75,6 +76,24 @@ export default function AlumnoDetail() {
     enabled: Boolean(id) && isGuid(id),
   });
 
+  const chargesQuery = useQuery({
+    queryKey: [...queryKeys.students.detail(id), 'charges'],
+    queryFn: () => listCharges({ studentId: id, pageSize: 200 }),
+    enabled: Boolean(id) && isGuid(id),
+  });
+
+  const documentsQuery = useQuery({
+    queryKey: [...queryKeys.students.detail(id), 'documents'],
+    queryFn: () => studentsApi.listStudentDocuments(id),
+    enabled: Boolean(id) && isGuid(id),
+  });
+
+  const timelineQuery = useQuery({
+    queryKey: [...queryKeys.students.detail(id), 'timeline'],
+    queryFn: () => studentsApi.listStudentTimeline(id),
+    enabled: Boolean(id) && isGuid(id),
+  });
+
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({ for: 'alumno-detail' }),
     queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
@@ -85,19 +104,44 @@ export default function AlumnoDetail() {
     if (!studentQuery.data?.data) return;
     const base = studentQuery.data.data;
     const parents = guardiansQuery.data?.data ?? base.parents ?? [];
+    const payments = chargesQuery.data?.data
+      ? studentsApi.chargesToStudentPayments(chargesQuery.data.data)
+      : base.payments ?? [];
+    const documents = documentsQuery.data?.data ?? base.documents ?? [];
+    const timeline = timelineQuery.data?.data ?? base.timeline ?? [];
+    const pendingBalance = payments
+      .filter((p) => p.status !== 'paid')
+      .reduce((sum, p) => sum + p.amount, 0);
+    const lastPaid = payments
+      .filter((p) => p.status === 'paid')
+      .map((p) => p.date)
+      .filter(Boolean)
+      .sort()
+      .at(-1);
     setStudentState({
       ...base,
       parents,
-      payments: base.payments ?? [],
-      documents: base.documents ?? [],
-      timeline: base.timeline ?? [],
+      payments,
+      documents,
+      timeline,
+      balance: pendingBalance,
+      lastPayment: lastPaid || base.lastPayment || '',
     });
-  }, [studentQuery.data, guardiansQuery.data]);
+  }, [
+    studentQuery.data,
+    guardiansQuery.data,
+    chargesQuery.data,
+    documentsQuery.data,
+    timelineQuery.data,
+  ]);
 
   const invalidate = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.students.detail(id) });
     void queryClient.invalidateQueries({ queryKey: queryKeys.students.all });
     void queryClient.invalidateQueries({ queryKey: [...queryKeys.students.detail(id), 'guardians'] });
+    void queryClient.invalidateQueries({ queryKey: [...queryKeys.students.detail(id), 'charges'] });
+    void queryClient.invalidateQueries({ queryKey: [...queryKeys.students.detail(id), 'documents'] });
+    void queryClient.invalidateQueries({ queryKey: [...queryKeys.students.detail(id), 'timeline'] });
     void queryClient.invalidateQueries({ queryKey: queryKeys.parents.all });
   }, [queryClient, id]);
 

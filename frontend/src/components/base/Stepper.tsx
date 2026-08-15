@@ -28,8 +28,11 @@ export default function Stepper({ steps, currentStep, onStepClick, orientation =
             <div key={step.id} className="relative flex items-start gap-3">
               <div className="flex flex-col items-center">
                 <button
+                  type="button"
                   onClick={() => onStepClick?.(index)}
                   disabled={isPending}
+                  aria-current={isCurrent ? 'step' : undefined}
+                  aria-label={step.label}
                   className={`w-8 h-8 flex items-center justify-center rounded-full border-2 text-xs font-semibold transition-all duration-200 flex-shrink-0 ${
                     isCompleted
                       ? 'bg-primary-500 border-primary-500 text-white cursor-pointer'
@@ -73,8 +76,11 @@ export default function Stepper({ steps, currentStep, onStepClick, orientation =
             <div key={step.id} className="flex items-center flex-1 last:flex-none">
               <div className="flex flex-col items-center flex-shrink-0">
                 <button
+                  type="button"
                   onClick={() => onStepClick?.(index)}
                   disabled={isPending}
+                  aria-current={isCurrent ? 'step' : undefined}
+                  aria-label={step.label}
                   className={`w-10 h-10 flex items-center justify-center rounded-full border-2 text-sm font-semibold transition-all duration-200 ${
                     isCompleted
                       ? 'bg-primary-500 border-primary-500 text-white cursor-pointer hover:bg-primary-600'

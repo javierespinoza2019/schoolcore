@@ -3,7 +3,10 @@ using System.Text;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using SchoolCore.Business.Email;
+using SchoolCore.Common.Email;
 using SchoolCore.Common.Exceptions;
+using SchoolCore.Common.Interaction;
 using SchoolCore.Common.Options;
 using SchoolCore.Common.Security;
 using SchoolCore.DataAccess.Repositories;
@@ -34,8 +37,9 @@ public sealed class AuthService : IAuthService
     private const int MinPasswordLength = 8;
 
     private readonly IAuthRepository _authRepository;
+    private readonly IOrganizationRepository _organizationRepository;
     private readonly IJwtTokenService _jwtTokenService;
-    private readonly IEmailSender _emailSender;
+    private readonly IEmailQueue _emailQueue;
     private readonly JwtOptions _jwtOptions;
     private readonly AppOptions _appOptions;
     private readonly ILogger<AuthService> _logger;
@@ -43,15 +47,17 @@ public sealed class AuthService : IAuthService
 
     public AuthService(
         IAuthRepository authRepository,
+        IOrganizationRepository organizationRepository,
         IJwtTokenService jwtTokenService,
-        IEmailSender emailSender,
+        IEmailQueue emailQueue,
         IOptions<JwtOptions> jwtOptions,
         IOptions<AppOptions> appOptions,
         ILogger<AuthService> logger)
     {
         _authRepository = authRepository;
+        _organizationRepository = organizationRepository;
         _jwtTokenService = jwtTokenService;
-        _emailSender = emailSender;
+        _emailQueue = emailQueue;
         _jwtOptions = jwtOptions.Value;
         _appOptions = appOptions.Value;
         _logger = logger;
@@ -151,7 +157,9 @@ public sealed class AuthService : IAuthService
     {
         if (string.IsNullOrWhiteSpace(request.Email))
         {
-            throw AppException.BadRequest("Email is required.");
+            throw AppException.BadRequest(
+                InteractionMessages.Text("AUTH_EMAIL_REQUIRED"),
+                new[] { "AUTH_EMAIL_REQUIRED" });
         }
 
         var lookup = await _authRepository.GetUserByEmailAsync(request.Email.Trim(), NormalizeTenantCode(request.TenantCode), cancellationToken);
@@ -169,27 +177,49 @@ public sealed class AuthService : IAuthService
         await _authRepository.CreatePasswordResetTokenAsync(Guid.NewGuid(), user.TenantId, user.Id, tokenHash, expiresAt, cancellationToken);
 
         var resetUrl = $"{_appOptions.PublicWebBaseUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(rawToken)}";
-        var subject = "Recuperación de contraseña — SchoolCore";
-        var body = BuildPasswordResetHtml(user.TenantName, resetUrl);
+        var schoolName = string.IsNullOrWhiteSpace(user.TenantName) ? "SchoolCore" : user.TenantName;
+        var userName = string.IsNullOrWhiteSpace(user.FirstName) ? user.Email : user.FirstName.Trim();
 
-        _ = Task.Run(async () =>
+        var template = await _organizationRepository.ResolveEmailTemplateAsync(
+            user.TenantId, EmailTemplateKeys.PasswordReset, "es", cancellationToken);
+
+        var vars = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
         {
-            try
-            {
-                await _emailSender.SendAsync(user.Email, subject, body, CancellationToken.None);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send password reset email for user {UserId}", user.Id);
-            }
-        }, CancellationToken.None);
+            ["SchoolName"] = schoolName,
+            ["ResetUrl"] = resetUrl,
+            ["UserName"] = userName,
+            ["Year"] = DateTime.UtcNow.Year.ToString(),
+            ["PrimaryColor"] = string.IsNullOrWhiteSpace(template?.PrimaryColor) ? "#2563eb" : template!.PrimaryColor,
+            ["LogoUrl"] = template?.LogoUrl ?? string.Empty
+        };
+
+        var subjectTemplate = string.IsNullOrWhiteSpace(template?.Subject)
+            ? "Recuperación de contraseña — {{SchoolName}}"
+            : template.Subject;
+        var bodyTemplate = string.IsNullOrWhiteSpace(template?.HtmlBody)
+            ? BuildPasswordResetHtmlFallback()
+            : template.HtmlBody;
+
+        var subject = EmailTemplateRenderer.Render(subjectTemplate, vars);
+        var body = EmailTemplateRenderer.Render(bodyTemplate, vars);
+
+        try
+        {
+            await _emailQueue.EnqueueAsync(new OutboundEmail(user.Email, subject, body), cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to enqueue password reset email for user {UserId}", user.Id);
+        }
     }
 
     public async Task ResetPasswordAsync(ResetPasswordRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.Token))
         {
-            throw AppException.BadRequest("Token is required.");
+            throw AppException.BadRequest(
+                InteractionMessages.Text("AUTH_INVALID_RESET_TOKEN"),
+                new[] { "AUTH_INVALID_RESET_TOKEN" });
         }
 
         ValidatePasswordComplexity(request.NewPassword);
@@ -198,7 +228,9 @@ public sealed class AuthService : IAuthService
         var (userId, tenantId, success) = await _authRepository.ConsumePasswordResetTokenAsync(tokenHash, cancellationToken);
         if (!success || userId is null || tenantId is null)
         {
-            throw AppException.BadRequest("Invalid or expired password reset token.");
+            throw AppException.BadRequest(
+                InteractionMessages.Text("AUTH_INVALID_RESET_TOKEN"),
+                new[] { "AUTH_INVALID_RESET_TOKEN" });
         }
 
         var passwordHash = HashPassword(request.NewPassword);
@@ -317,7 +349,8 @@ public sealed class AuthService : IAuthService
 
         if (errors.Count > 0)
         {
-            throw AppException.BadRequest("Password does not meet complexity requirements.", errors);
+            errors.Insert(0, "AUTH_PASSWORD_COMPLEXITY");
+            throw AppException.BadRequest(InteractionMessages.Text("AUTH_PASSWORD_COMPLEXITY"), errors);
         }
     }
 
@@ -339,22 +372,18 @@ public sealed class AuthService : IAuthService
         return Convert.ToHexString(hash);
     }
 
-    private static string BuildPasswordResetHtml(string schoolName, string resetUrl)
-    {
-        const string template = """
-            <html>
-            <body style="font-family:Segoe UI,Arial,sans-serif;color:#1a1a1a;">
-              <h2>{{SchoolName}}</h2>
-              <p>Recibimos una solicitud para restablecer tu contraseña de SchoolCore.</p>
-              <p><a href="{{ResetUrl}}">Restablecer contraseña</a></p>
-              <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
-              <p style="color:#666;font-size:12px;">El enlace expira en 1 hora.</p>
-            </body>
-            </html>
-            """;
-
-        return template
-            .Replace("{{SchoolName}}", string.IsNullOrWhiteSpace(schoolName) ? "SchoolCore" : schoolName, StringComparison.Ordinal)
-            .Replace("{{ResetUrl}}", resetUrl, StringComparison.Ordinal);
-    }
+    /// <summary>Fallback si no hay fila en EmailTemplate (p. ej. BD sin seed 018).</summary>
+    private static string BuildPasswordResetHtmlFallback() =>
+        """
+        <html>
+        <body style="font-family:Segoe UI,Arial,sans-serif;color:#1a1a1a;">
+          <h2>{{SchoolName}}</h2>
+          <p>Hola {{UserName}},</p>
+          <p>Recibimos una solicitud para restablecer tu contraseña de SchoolCore.</p>
+          <p><a href="{{ResetUrl}}">Restablecer contraseña</a></p>
+          <p>Si no solicitaste este cambio, puedes ignorar este correo.</p>
+          <p style="color:#666;font-size:12px;">El enlace expira en 1 hora · {{Year}}</p>
+        </body>
+        </html>
+        """;
 }

@@ -678,7 +678,6 @@ export default function Caja() {
         <RegistrarPagoModal
           open={modalNuevoCobro}
           onClose={() => setModalNuevoCobro(false)}
-          requireOpenCashSession
           onPagoRegistrado={() => {
             invalidateCash();
             if (openSession?.id) {

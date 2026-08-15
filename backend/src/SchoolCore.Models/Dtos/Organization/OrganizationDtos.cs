@@ -293,3 +293,14 @@ public sealed class SetFeatureFlagRequest
     public bool IsEnabled { get; set; }
     public Guid? BranchId { get; set; }
 }
+
+public sealed class RolePermissionGrantDto
+{
+    public string ViewCode { get; set; } = string.Empty;
+    public IReadOnlyList<string> Actions { get; set; } = Array.Empty<string>();
+}
+
+public sealed class ReplaceRolePermissionsRequest
+{
+    public IReadOnlyList<RolePermissionGrantDto> Grants { get; set; } = Array.Empty<RolePermissionGrantDto>();
+}

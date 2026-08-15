@@ -84,14 +84,9 @@ export function PermissionProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (res.success && res.data != null) {
           const map = normalizeGrants(res.data);
-          // Lista vacía = stub MVP (allow-all). Evita bloquear UI sin catálogo ViewCode.
-          if (map.size === 0) {
-            setGrants(new Map());
-            setUsingReal(false);
-          } else {
-            setGrants(map);
-            setUsingReal(true);
-          }
+          // Con matriz real: lista vacía = sin permisos (fail-closed).
+          setGrants(map);
+          setUsingReal(true);
         } else {
           setUsingReal(false);
         }

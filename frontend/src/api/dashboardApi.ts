@@ -1,6 +1,7 @@
 import { apiClient } from '@/api/apiClient';
-import { buildQuery, fetchOrFallback, isGuid } from '@/api/helpers';
+import { buildQuery, isGuid } from '@/api/helpers';
 import type { FetchResult } from '@/api/types';
+import { isDevelopment } from '@/config/env';
 
 export interface DashboardKpiItem {
   id: string;
@@ -49,7 +50,7 @@ const emptyDashboard: DashboardKpis = {
   revenueData: [],
 };
 
-/** GET /dashboard/kpis — empty state real si no hay datos (sin mock engañoso). */
+/** GET /dashboard/kpis — datos reales desde API (empty state si vacío). */
 export async function getDashboardKpis(params: {
   branchId?: string | null;
   cycleId?: string | null;
@@ -58,7 +59,21 @@ export async function getDashboardKpis(params: {
     branchId: isGuid(params.branchId) ? params.branchId : undefined,
     cycleId: isGuid(params.cycleId) ? params.cycleId : undefined,
   });
-  return fetchOrFallback(() => apiClient(`/dashboard/kpis${q}`), () => emptyDashboard, {
-    allowFallback: true,
-  });
+  const res = await apiClient<DashboardKpis>(`/dashboard/kpis${q}`);
+  if (res.success && res.data) {
+    return {
+      data: {
+        kpis: res.data.kpis ?? [],
+        paymentDistribution: res.data.paymentDistribution ?? [],
+        recentActivity: res.data.recentActivity ?? [],
+        revenueData: res.data.revenueData ?? [],
+      },
+      source: 'api',
+      message: res.message,
+    };
+  }
+  if (isDevelopment) {
+    return { data: emptyDashboard, source: 'fallback', message: res.message };
+  }
+  throw new Error(res.message || 'No se pudieron cargar los KPIs');
 }

@@ -9,6 +9,7 @@ import PagosTab from '@/pages/configuracion/components/PagosTab';
 import CatalogosTab from '@/pages/configuracion/components/CatalogosTab';
 import UsuariosTab from '@/pages/configuracion/components/UsuariosTab';
 import EmailTemplatesTab from '@/pages/configuracion/components/EmailTemplatesTab';
+import FeatureFlagsTab from '@/pages/configuracion/components/FeatureFlagsTab';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as settingsApi from '@/api/settingsApi';
@@ -197,6 +198,12 @@ export default function Configuracion() {
       label: 'Email',
       icon: 'ri-mail-settings-line',
       content: <EmailTemplatesTab />,
+    },
+    {
+      id: 'flags',
+      label: 'Features',
+      icon: 'ri-flag-line',
+      content: <FeatureFlagsTab />,
     },
   ];
 

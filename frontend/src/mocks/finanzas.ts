@@ -6,11 +6,14 @@ export interface PagoConcepto {
   tipo: 'colegiatura' | 'inscripcion' | 'reinscripcion' | 'uniforme' | 'libros' | 'utiles' | 'comedor' | 'transporte' | 'taller' | 'otro';
   monto: number;
   fechaVencimiento: string;
-  estado: 'pagado' | 'pendiente' | 'vencido' | 'parcial';
+  estado: 'pagado' | 'pendiente' | 'vencido' | 'anulado';
   montoPagado: number;
   fechaPago?: string;
   folio?: string;
   metodoPago?: string;
+  /** posted | voided (API payment status) */
+  paymentStatus?: string;
+  voidReason?: string;
 }
 
 export interface IngresoEgreso {

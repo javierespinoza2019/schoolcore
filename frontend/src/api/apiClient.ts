@@ -8,6 +8,7 @@ import {
 import type { ApiResponse, RefreshResponse } from '@/api/types';
 import { toAuthUser } from '@/api/types';
 import { env } from '@/config/env';
+import { InteractionCodes, interactionMessage } from '@/lib/interaction/messages';
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
@@ -192,9 +193,14 @@ export async function apiClient<T>(
       data: null,
       message:
         String(raw.message || raw.title || raw.detail || '').trim() ||
-        `HTTP ${response.status}`,
+        (response.status === 429
+          ? interactionMessage(InteractionCodes.RATE_LIMITED)
+          : `HTTP ${response.status}`),
       errors: flattened.length ? flattened : Array.isArray(json.errors) ? json.errors : [],
     };
+    if (response.status === 429 && !json.errors.includes(InteractionCodes.RATE_LIMITED)) {
+      json.errors = [InteractionCodes.RATE_LIMITED, ...json.errors];
+    }
   } else {
     if (!json.errors) json.errors = [];
   }

@@ -8,9 +8,20 @@ import type { Profesor } from '@/mocks/profesores';
 import { listBranches } from '@/api/branchesApi';
 import { listEducationLevels } from '@/api/settingsApi';
 import { isGuid } from '@/api/helpers';
+import { InteractionCodes, interactionMessage } from '@/lib/interaction/messages';
+import { confirmSoftWarnings } from '@/lib/interaction/confirmSoft';
+import type { GuardIssue } from '@/lib/interaction/guards';
 import { queryKeys } from '@/api/queryKeys';
 import { useSchoolContext } from '@/context/SchoolContext';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
+import {
+  FieldLimits,
+  assignError,
+  validateEmail,
+  validateMaxLen,
+  validatePhone,
+  validateRequiredName,
+} from '@/lib/validation/fields';
 
 interface ProfesorFormModalProps {
   open: boolean;
@@ -50,15 +61,6 @@ const emptyForm: ProfesorFormData = {
 };
 
 const nivelesDefault = ['Preescolar', 'Primaria', 'Secundaria', 'Preparatoria'];
-
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-function isValidPhone(phone: string) {
-  const digits = phone.replace(/[\s\-\+\(\)]/g, '');
-  return digits.length >= 8;
-}
 
 function splitNombre(nombreCompleto: string): { firstName: string; lastName: string } {
   const trimmed = nombreCompleto.trim();
@@ -199,24 +201,19 @@ export default function ProfesorFormModal({ open, onClose, onSave, profesor, sav
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!form.firstName.trim()) newErrors.firstName = 'El nombre es obligatorio';
-    else if (form.firstName.trim().length < 2) newErrors.firstName = 'Mínimo 2 caracteres';
-
-    if (!form.lastName.trim()) newErrors.lastName = 'Los apellidos son obligatorios';
-    else if (form.lastName.trim().length < 2) newErrors.lastName = 'Mínimo 2 caracteres';
-
-    if (!form.email.trim()) newErrors.email = 'El email es obligatorio';
-    else if (!isValidEmail(form.email.trim())) newErrors.email = 'Formato de email inválido';
-
-    if (!form.telefono.trim()) newErrors.telefono = 'El teléfono es obligatorio';
-    else if (!isValidPhone(form.telefono.trim())) newErrors.telefono = 'Mínimo 8 dígitos';
+    assignError(newErrors, 'firstName', validateRequiredName(form.firstName, 'El nombre'));
+    assignError(newErrors, 'lastName', validateRequiredName(form.lastName, 'Los apellidos'));
+    assignError(newErrors, 'email', validateEmail(form.email, true));
+    assignError(newErrors, 'telefono', validatePhone(form.telefono, true));
 
     if (!form.especialidad.trim()) newErrors.especialidad = 'La especialidad es obligatoria';
+    assignError(newErrors, 'especialidad', validateMaxLen(form.especialidad, FieldLimits.specialty, 'Especialidad'));
 
     if (!form.salarioMensual.trim()) newErrors.salarioMensual = 'El salario es obligatorio';
     else if (isNaN(Number(form.salarioMensual)) || Number(form.salarioMensual) <= 0) newErrors.salarioMensual = 'Ingresa un monto válido mayor a 0';
 
     if (!form.horario.trim()) newErrors.horario = 'El horario es obligatorio';
+    assignError(newErrors, 'horario', validateMaxLen(form.horario, FieldLimits.schedule, 'Horario'));
 
     if (!form.materias.trim()) newErrors.materias = 'Indica al menos una materia';
 
@@ -226,8 +223,18 @@ export default function ProfesorFormModal({ open, onClose, onSave, profesor, sav
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
-    if (!validate()) return;
+  const handleSubmit = async () => {
+    if (!validate() || saving) return;
+    const soft: GuardIssue[] = [];
+    const salonCount = profesor?.salones?.length ?? 0;
+    if (salonCount === 0) {
+      soft.push({
+        code: InteractionCodes.REL_TEACHER_NO_CLASSROOM,
+        message: interactionMessage(InteractionCodes.REL_TEACHER_NO_CLASSROOM),
+      });
+    }
+    const ok = await confirmSoftWarnings(soft);
+    if (!ok) return;
     onSave(form);
   };
 
@@ -241,7 +248,7 @@ export default function ProfesorFormModal({ open, onClose, onSave, profesor, sav
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button variant="primary" size="sm" icon="ri-save-line" onClick={handleSubmit} loading={saving}>
+          <Button variant="primary" size="sm" icon="ri-save-line" onClick={handleSubmit} disabled={saving} loading={saving}>
             {profesor ? 'Guardar Cambios' : 'Registrar Profesor'}
           </Button>
         </>
@@ -329,11 +336,11 @@ export default function ProfesorFormModal({ open, onClose, onSave, profesor, sav
             Datos Personales
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input label="Nombre(s)" required value={form.firstName} onChange={(e) => handleChange('firstName', e.target.value)} error={errors.firstName} placeholder="Ej. María Elena" />
-            <Input label="Apellidos" required value={form.lastName} onChange={(e) => handleChange('lastName', e.target.value)} error={errors.lastName} placeholder="Ej. Rodríguez López" />
-            <Input label="Email" type="email" required value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="profesor@SchoolCore.edu.mx" />
-            <Input label="Teléfono" required value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
-            <Input label="Especialidad" required value={form.especialidad} onChange={(e) => handleChange('especialidad', e.target.value)} error={errors.especialidad} placeholder="Ej. Matemáticas" />
+            <Input label="Nombre(s)" required maxLength={FieldLimits.name} value={form.firstName} onChange={(e) => handleChange('firstName', e.target.value)} error={errors.firstName} placeholder="Ej. María Elena" />
+            <Input label="Apellidos" required maxLength={FieldLimits.name} value={form.lastName} onChange={(e) => handleChange('lastName', e.target.value)} error={errors.lastName} placeholder="Ej. Rodríguez López" />
+            <Input label="Email" type="email" required maxLength={FieldLimits.email} value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="profesor@SchoolCore.edu.mx" />
+            <Input label="Teléfono" required maxLength={FieldLimits.phone} value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
+            <Input label="Especialidad" required maxLength={FieldLimits.specialty} value={form.especialidad} onChange={(e) => handleChange('especialidad', e.target.value)} error={errors.especialidad} placeholder="Ej. Matemáticas" />
             <Select
               label="Estado"
               value={form.estado}
@@ -375,7 +382,7 @@ export default function ProfesorFormModal({ open, onClose, onSave, profesor, sav
               options={nivelOptions}
             />
             <div className="sm:col-span-2">
-              <Input label="Horario" required value={form.horario} onChange={(e) => handleChange('horario', e.target.value)} error={errors.horario} placeholder="Lunes a Viernes 7:00 - 14:00" />
+              <Input label="Horario" required maxLength={FieldLimits.schedule} value={form.horario} onChange={(e) => handleChange('horario', e.target.value)} error={errors.horario} placeholder="Lunes a Viernes 7:00 - 14:00" />
             </div>
           </div>
         </div>

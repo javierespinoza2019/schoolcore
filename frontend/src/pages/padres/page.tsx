@@ -13,6 +13,7 @@ import ParentFormModal from '@/pages/padres/components/ParentFormModal';
 import type { ParentFormData } from '@/pages/padres/components/ParentFormModal';
 import DeleteConfirmModal from '@/components/base/DeleteConfirmModal';
 import EmptyState from '@/components/base/EmptyState';
+import ModuleContextGate from '@/components/feature/ModuleContextGate';
 import { useToast } from '@/components/base/Toast';
 import type { Parent } from '@/mocks/padres';
 import { useSchoolContext } from '@/context/SchoolContext';
@@ -398,6 +399,7 @@ export default function Padres() {
   ];
 
   return (
+    <ModuleContextGate requireCycle={false}>
     <MainLayout>
       <div className="max-w-[1440px] mx-auto">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
@@ -533,5 +535,6 @@ export default function Padres() {
         />
       </div>
     </MainLayout>
+    </ModuleContextGate>
   );
 }

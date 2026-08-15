@@ -10,6 +10,17 @@ import type { Parent } from '@/mocks/padres';
 import type { Student } from '@/mocks/alumnos';
 import * as studentsApi from '@/api/studentsApi';
 import { queryKeys } from '@/api/queryKeys';
+import { InteractionCodes, interactionMessage } from '@/lib/interaction/messages';
+import { confirmSoftWarnings } from '@/lib/interaction/confirmSoft';
+import type { GuardIssue } from '@/lib/interaction/guards';
+import {
+  FieldLimits,
+  assignError,
+  validateEmail,
+  validateMaxLen,
+  validatePhone,
+  validateRequiredName,
+} from '@/lib/validation/fields';
 
 interface ParentFormModalProps {
   open: boolean;
@@ -40,15 +51,6 @@ const emptyForm: ParentFormData = {
   status: 'active',
   linkedStudentIds: [],
 };
-
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-function isValidPhone(phone: string) {
-  const digits = phone.replace(/[\s\-\+\(\)]/g, '');
-  return digits.length >= 8;
-}
 
 const statusConfig: Record<
   string,
@@ -143,28 +145,32 @@ export default function ParentFormModal({
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
 
-    if (!form.firstName.trim()) newErrors.firstName = 'El nombre es obligatorio';
-    else if (form.firstName.trim().length < 2) newErrors.firstName = 'Mínimo 2 caracteres';
-
-    if (!form.lastName.trim()) newErrors.lastName = 'Los apellidos son obligatorios';
-    else if (form.lastName.trim().length < 2) newErrors.lastName = 'Mínimo 2 caracteres';
-
-    if (!form.email.trim()) newErrors.email = 'El email es obligatorio';
-    else if (!isValidEmail(form.email.trim())) newErrors.email = 'Formato de email inválido';
-
-    if (!form.phone.trim()) newErrors.phone = 'El teléfono es obligatorio';
-    else if (!isValidPhone(form.phone.trim())) newErrors.phone = 'Mínimo 8 dígitos';
+    assignError(newErrors, 'firstName', validateRequiredName(form.firstName, 'El nombre'));
+    assignError(newErrors, 'lastName', validateRequiredName(form.lastName, 'Los apellidos'));
+    assignError(newErrors, 'email', validateEmail(form.email, true));
+    assignError(newErrors, 'phone', validatePhone(form.phone, true));
 
     if (!form.occupation.trim()) newErrors.occupation = 'La ocupación es obligatoria';
+    assignError(newErrors, 'occupation', validateMaxLen(form.occupation, FieldLimits.occupation, 'Ocupación'));
 
     if (!form.address.trim()) newErrors.address = 'La dirección es obligatoria';
+    assignError(newErrors, 'address', validateMaxLen(form.address, FieldLimits.address, 'Dirección'));
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
-    if (!validate()) return;
+  const handleSubmit = async () => {
+    if (!validate() || saving) return;
+    const soft: GuardIssue[] = [];
+    if (form.linkedStudentIds.length === 0) {
+      soft.push({
+        code: InteractionCodes.REL_GUARDIAN_NO_CHILDREN,
+        message: interactionMessage(InteractionCodes.REL_GUARDIAN_NO_CHILDREN),
+      });
+    }
+    const ok = await confirmSoftWarnings(soft);
+    if (!ok) return;
     onSave(form);
   };
 
@@ -185,6 +191,7 @@ export default function ParentFormModal({
             size="sm"
             icon="ri-save-line"
             onClick={handleSubmit}
+            disabled={saving}
             loading={saving}
           >
             {parent ? 'Guardar Cambios' : 'Registrar Tutor'}
@@ -202,6 +209,7 @@ export default function ParentFormModal({
             <Input
               label="Nombre(s)"
               required
+              maxLength={FieldLimits.name}
               value={form.firstName}
               onChange={(e) => handleChange('firstName', e.target.value)}
               error={errors.firstName}
@@ -210,6 +218,7 @@ export default function ParentFormModal({
             <Input
               label="Apellidos"
               required
+              maxLength={FieldLimits.name}
               value={form.lastName}
               onChange={(e) => handleChange('lastName', e.target.value)}
               error={errors.lastName}
@@ -219,6 +228,7 @@ export default function ParentFormModal({
               label="Email"
               type="email"
               required
+              maxLength={FieldLimits.email}
               value={form.email}
               onChange={(e) => handleChange('email', e.target.value)}
               error={errors.email}
@@ -227,6 +237,7 @@ export default function ParentFormModal({
             <Input
               label="Teléfono"
               required
+              maxLength={FieldLimits.phone}
               value={form.phone}
               onChange={(e) => handleChange('phone', e.target.value)}
               error={errors.phone}
@@ -235,6 +246,7 @@ export default function ParentFormModal({
             <Input
               label="Ocupación"
               required
+              maxLength={FieldLimits.occupation}
               value={form.occupation}
               onChange={(e) => handleChange('occupation', e.target.value)}
               error={errors.occupation}
@@ -254,6 +266,7 @@ export default function ParentFormModal({
             <Input
               label="Dirección"
               required
+              maxLength={FieldLimits.address}
               value={form.address}
               onChange={(e) => handleChange('address', e.target.value)}
               error={errors.address}

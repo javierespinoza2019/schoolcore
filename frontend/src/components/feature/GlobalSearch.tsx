@@ -50,7 +50,9 @@ export default function GlobalSearch() {
   return (
     <>
       <button
+        type="button"
         onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50); }}
+        aria-label="Buscar en SchoolCore"
         className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-background-100 border border-secondary-200 text-sm text-foreground-400 hover:text-foreground-600 hover:border-secondary-300 transition-colors cursor-pointer min-w-[200px]"
       >
         <i className="ri-search-line text-sm" />
@@ -63,15 +65,22 @@ export default function GlobalSearch() {
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]">
           <div className="fixed inset-0 bg-black/30" onClick={() => setOpen(false)} />
-          <div ref={ref} className="relative w-full max-w-lg bg-background-50 rounded-xl border border-secondary-200 shadow-2xl overflow-hidden mx-4">
+          <div
+            ref={ref}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Búsqueda"
+            className="relative w-full max-w-lg bg-background-50 rounded-xl border border-secondary-200 shadow-2xl overflow-hidden mx-4"
+          >
             <div className="flex items-center gap-2 px-4 py-3 border-b border-secondary-100">
-              <i className="ri-search-line text-foreground-400" />
+              <i className="ri-search-line text-foreground-400" aria-hidden="true" />
               <input
                 ref={inputRef}
-                type="text"
+                type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Buscar módulos, alumnos, reportes..."
+                aria-label="Buscar módulos"
                 className="flex-1 bg-transparent text-sm text-foreground-900 placeholder:text-foreground-300 outline-none"
               />
               <kbd className="text-3xs px-1.5 py-0.5 rounded bg-secondary-100 text-foreground-500">ESC</kbd>

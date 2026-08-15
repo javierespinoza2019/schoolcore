@@ -38,8 +38,7 @@ export async function listCashSessions(params: {
     () => cortesCaja as unknown as Record<string, unknown>[]
   );
   const items = unwrapList(result.data).map((x) => normalizeSession(x as Record<string, unknown>));
-  if (result.source === 'api') return { data: items, source: 'api', message: result.message };
-  return { data: items.length ? items : cortesCaja, source: 'fallback', message: result.message };
+  return { data: items, source: result.source, message: result.message };
 }
 
 /** GET /cash-sessions/open — requiere branchId. `null` = sin sesión abierta (OK). */
@@ -182,13 +181,20 @@ export async function createCashMovement(
   };
 }
 
-/** Lista arqueos vía GET audit por sesión abierta/cerrada (fallback mock). */
+/** Lista arqueos vía GET audit por sesión (sin mock en QA/prod). */
 export async function listArqueos(params: {
   branchId?: string | null;
 }): Promise<FetchResult<ArqueoCaja[]>> {
   const sessions = await listCashSessions(params);
-  if (sessions.source !== 'api' || !sessions.data.length) {
-    return { data: arqueosCaja, source: 'fallback' };
+  if (sessions.source !== 'api') {
+    return {
+      data: isDevelopment ? arqueosCaja : [],
+      source: isDevelopment ? 'fallback' : 'api',
+      message: sessions.message,
+    };
+  }
+  if (!sessions.data.length) {
+    return { data: [], source: 'api', message: sessions.message };
   }
 
   const audits: ArqueoCaja[] = [];
@@ -205,20 +211,43 @@ export async function listArqueos(params: {
   return { data: audits, source: 'api' };
 }
 
-/** Resumen hoy: no hay endpoint dedicado; se deriva del corte abierto + fallback. */
+/** Resumen hoy: derivado del corte abierto (sin mock engañoso en QA/prod). */
 export async function getCashSummaryToday(branchId?: string | null): Promise<FetchResult<typeof resumenCajaHoy>> {
+  const empty = {
+    fecha: new Date().toISOString().slice(0, 10),
+    corteAbierto: 'Sin corte abierto',
+    turno: '—',
+    montoInicial: 0,
+    ingresosHoy: 0,
+    egresosHoy: 0,
+    transaccionesHoy: 0,
+    efectivo: 0,
+    tarjeta: 0,
+    transferencia: 0,
+    cheque: 0,
+  };
+
   const open = await getOpenCashSession(branchId);
   if (open.source === 'api' && open.data) {
     return {
       data: {
-        ...resumenCajaHoy,
-        corteAbierto: open.data.usuario || resumenCajaHoy.corteAbierto,
+        ...empty,
+        corteAbierto: open.data.usuario || '—',
         turno: open.data.turno === 'vespertino' ? 'Vespertino' : 'Matutino',
+        montoInicial: open.data.montoInicial ?? 0,
         ingresosHoy: open.data.totalIngresos ?? 0,
         egresosHoy: open.data.totalEgresos ?? 0,
+        fecha: open.data.fecha || empty.fecha,
       },
       source: 'api',
     };
   }
-  return { data: resumenCajaHoy, source: 'fallback' };
+  if (open.source === 'api') {
+    return { data: empty, source: 'api', message: open.message };
+  }
+  return {
+    data: isDevelopment ? resumenCajaHoy : empty,
+    source: isDevelopment ? 'fallback' : 'api',
+    message: open.message,
+  };
 }

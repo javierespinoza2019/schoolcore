@@ -7,6 +7,7 @@ import { ToastProvider } from '@/components/base/Toast';
 import { AuthProvider } from '@/auth/AuthContext';
 import { PermissionProvider } from '@/permissions/PermissionContext';
 import { SchoolProvider } from '@/context/SchoolContext';
+import { FeatureFlagsProvider } from '@/context/FeatureFlagsContext';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,9 +26,11 @@ function App() {
           <AuthProvider>
             <PermissionProvider>
               <SchoolProvider>
-                <ToastProvider>
-                  <AppRoutes />
-                </ToastProvider>
+                <FeatureFlagsProvider>
+                  <ToastProvider>
+                    <AppRoutes />
+                  </ToastProvider>
+                </FeatureFlagsProvider>
               </SchoolProvider>
             </PermissionProvider>
           </AuthProvider>

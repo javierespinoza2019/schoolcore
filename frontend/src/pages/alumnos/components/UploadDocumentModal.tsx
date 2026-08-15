@@ -3,10 +3,14 @@ import Modal from '@/components/base/Modal';
 import Button from '@/components/base/Button';
 import Input from '@/components/base/Input';
 import Select from '@/components/base/Select';
-import type { Student, StudentDocument } from '@/mocks/alumnos';
+import type { Student } from '@/mocks/alumnos';
 import { uploadStudentDocument } from '@/api/studentsApi';
 import { useToast } from '@/components/base/Toast';
-import { isDevelopment } from '@/config/env';
+import {
+  DOCUMENT_RULES_HINT,
+  documentExtensionError,
+  documentSizeError,
+} from '@/lib/documents/rules';
 
 interface UploadDocumentModalProps {
   open: boolean;
@@ -35,9 +39,6 @@ const documentNames = [
   'Reglamento Firmado',
   'Otro',
 ];
-
-const MAX_BYTES = 5 * 1024 * 1024;
-const ALLOWED_EXT = ['.pdf', '.jpg', '.jpeg', '.png'];
 
 export default function UploadDocumentModal({ open, onClose, student, onDocumentUploaded }: UploadDocumentModalProps) {
   const { showToast } = useToast();
@@ -68,18 +69,18 @@ export default function UploadDocumentModal({ open, onClose, student, onDocument
   };
 
   const processFile = (selected: File) => {
-    const ext = '.' + selected.name.split('.').pop()?.toLowerCase();
-
-    if (!ALLOWED_EXT.includes(ext)) {
-      setErrors((prev) => ({ ...prev, file: 'Solo se permiten PDF, JPG, JPEG o PNG' }));
+    const extErr = documentExtensionError(selected.name);
+    if (extErr) {
+      setErrors((prev) => ({ ...prev, file: extErr }));
+      return;
+    }
+    const sizeErr = documentSizeError(selected.size);
+    if (sizeErr) {
+      setErrors((prev) => ({ ...prev, file: sizeErr }));
       return;
     }
 
-    if (selected.size > MAX_BYTES) {
-      setErrors((prev) => ({ ...prev, file: 'El archivo no debe superar 5 MB' }));
-      return;
-    }
-
+    const ext = `.${selected.name.split('.').pop()?.toLowerCase() ?? ''}`;
     setFile(selected);
     setFileName(selected.name);
     if (ext === '.pdf') setDocType('PDF');
@@ -125,55 +126,42 @@ export default function UploadDocumentModal({ open, onClose, student, onDocument
   };
 
   const handleSubmit = async () => {
-    if (!validate()) return;
-    if (!file) return;
+    if (uploading || !validate() || !file) return;
 
     const finalName = docName === 'Otro' ? customName.trim() : docName;
-    const today = new Date().toISOString().split('T')[0];
     setUploading(true);
-
-    const res = await uploadStudentDocument(student.id, file, { name: finalName, type: docType });
-
-    let newDoc: StudentDocument;
-    if (res.success && res.data) {
-      newDoc = res.data;
-    } else {
-      // TODO: quitar fallback local cuando /students/:id/documents esté estable
-      if (isDevelopment) {
-        console.warn('[Upload] API falló; metadatos locales temporales', res.message);
+    try {
+      const res = await uploadStudentDocument(student.id, file, { name: finalName, type: docType });
+      if (!res.success || !res.data) {
+        showToast(res.message || 'No se pudo subir el documento. Intenta de nuevo.', 'error');
+        return;
       }
-      showToast(res.message || 'Upload API no disponible; se registró metadato local', 'info');
-      newDoc = {
-        id: `DOC-${Date.now().toString(36).toUpperCase()}`,
-        name: finalName,
-        type: docType,
-        uploadDate: today,
-        status: 'pending',
+
+      const today = new Date().toISOString().split('T')[0];
+      const updatedStudent: Student = {
+        ...student,
+        documents: [res.data, ...student.documents],
+        timeline: [
+          {
+            id: `TL-${Date.now()}`,
+            date: `${today} ${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`,
+            title: `Documento "${finalName}" subido`,
+            description: `Se subió el documento "${finalName}" (${docType}) al expediente del alumno`,
+            icon: 'ri-file-upload-line',
+            iconBg: 'bg-primary-100',
+            iconColor: 'text-primary-600',
+            badge: 'Documento',
+          },
+          ...student.timeline,
+        ],
       };
+
+      onDocumentUploaded(updatedStudent);
+      showToast('Documento subido correctamente', 'success');
+      handleClose();
+    } finally {
+      setUploading(false);
     }
-
-    const updatedStudent: Student = {
-      ...student,
-      documents: [newDoc, ...student.documents],
-      timeline: [
-        {
-          id: `TL-${Date.now()}`,
-          date: `${today} ${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`,
-          title: `Documento "${finalName}" subido`,
-          description: `Se subió el documento "${finalName}" (${docType}) al expediente del alumno`,
-          icon: 'ri-file-upload-line',
-          iconBg: 'bg-primary-100',
-          iconColor: 'text-primary-600',
-          badge: 'Documento',
-        },
-        ...student.timeline,
-      ],
-    };
-
-    onDocumentUploaded(updatedStudent);
-    if (res.success) showToast('Documento subido correctamente', 'success');
-    setUploading(false);
-    handleClose();
   };
 
   return (
@@ -186,7 +174,7 @@ export default function UploadDocumentModal({ open, onClose, student, onDocument
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={handleClose} disabled={uploading}>Cancelar</Button>
-          <Button variant="primary" size="sm" icon="ri-upload-cloud-2-line" loading={uploading} onClick={handleSubmit}>
+          <Button variant="primary" size="sm" icon="ri-upload-cloud-2-line" loading={uploading} disabled={uploading} onClick={() => void handleSubmit()}>
             Subir Documento
           </Button>
         </>
@@ -246,7 +234,7 @@ export default function UploadDocumentModal({ open, onClose, student, onDocument
             <input
               ref={fileInputRef}
               type="file"
-              accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+              accept=".pdf,.jpg,.jpeg,.png"
               onChange={handleFileSelect}
               className="hidden"
             />
@@ -270,13 +258,13 @@ export default function UploadDocumentModal({ open, onClose, student, onDocument
                     <p className="text-sm font-medium text-foreground-700">Seleccionar archivo</p>
                     <p className="text-xs text-foreground-400 mt-0.5">Arrastra un archivo o haz clic aquí</p>
                   </div>
-                  <span className="text-3xs text-foreground-300">PDF, JPG, PNG, DOC, DOCX · Máx. 10 MB</span>
+                  <span className="text-3xs text-foreground-300">{DOCUMENT_RULES_HINT}</span>
                 </>
               )}
             </div>
           </div>
           {errors.file && (
-            <p className="mt-1.5 text-xs text-red-500">{errors.file}</p>
+            <p className="mt-1.5 text-xs text-red-500" role="alert">{errors.file}</p>
           )}
         </div>
       </div>

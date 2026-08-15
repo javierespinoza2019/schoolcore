@@ -11,9 +11,21 @@ import type { Salon } from '@/mocks/salones';
 import { getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { isGuid } from '@/api/helpers';
+import {
+  FieldLimits,
+  assignError,
+  validateBirthDate,
+  validateEmail,
+  validateMaxLen,
+  validatePhone,
+  validateRequiredName,
+} from '@/lib/validation/fields';
 import * as parentsApi from '@/api/parentsApi';
 import { queryKeys } from '@/api/queryKeys';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
+import { collectStudentInteractionIssues } from '@/lib/interaction/guards';
+import { confirmSoftWarnings } from '@/lib/interaction/confirmSoft';
+import { useToast } from '@/components/base/Toast';
 
 interface StudentFormModalProps {
   open: boolean;
@@ -90,15 +102,6 @@ const parentescoOptions = [
   'Otro Familiar',
 ];
 
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-function isValidPhone(phone: string) {
-  const digits = phone.replace(/[\s\-\+\(\)]/g, '');
-  return digits.length >= 8;
-}
-
 export default function StudentFormModal({
   open,
   onClose,
@@ -107,7 +110,13 @@ export default function StudentFormModal({
   saving = false,
   classrooms = [],
 }: StudentFormModalProps) {
-  const { branchId: contextBranchId, branch: contextBranch, branchOptions } = useSchoolContext();
+  const { showToast } = useToast();
+  const {
+    branchId: contextBranchId,
+    branch: contextBranch,
+    branchOptions,
+    cycleId,
+  } = useSchoolContext();
   const [form, setForm] = useState<StudentFormData>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [photoPreview, setPhotoPreview] = useState<string>('');
@@ -179,8 +188,15 @@ export default function StudentFormModal({
 
   const salonPreview = useMemo(() => {
     if (!form.level || !form.grade || !form.group || !form.branchName) return null;
-    return getSalonDelAlumno(form.level, form.grade, form.group, form.branchName, classrooms);
-  }, [form.level, form.grade, form.group, form.branchName, classrooms]);
+    return getSalonDelAlumno(
+      form.level,
+      form.grade,
+      form.group,
+      form.branchName,
+      classrooms,
+      form.branchId
+    );
+  }, [form.level, form.grade, form.group, form.branchName, form.branchId, classrooms]);
 
   const handleChange = (field: keyof StudentFormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -298,22 +314,14 @@ export default function StudentFormModal({
 
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
-
-    if (!form.firstName.trim()) newErrors.firstName = 'El nombre es obligatorio';
-    else if (form.firstName.trim().length < 2) newErrors.firstName = 'Mínimo 2 caracteres';
-
-    if (!form.lastName.trim()) newErrors.lastName = 'Los apellidos son obligatorios';
-    else if (form.lastName.trim().length < 2) newErrors.lastName = 'Mínimo 2 caracteres';
-
-    if (form.email.trim() && !isValidEmail(form.email.trim())) {
-      newErrors.email = 'Formato de email inválido';
-    }
-
-    if (form.phone.trim() && !isValidPhone(form.phone.trim())) {
-      newErrors.phone = 'Mínimo 8 dígitos';
-    }
-
-    if (!form.birthDate) newErrors.birthDate = 'La fecha de nacimiento es obligatoria';
+    assignError(newErrors, 'firstName', validateRequiredName(form.firstName, 'El nombre'));
+    assignError(newErrors, 'lastName', validateRequiredName(form.lastName, 'Los apellidos'));
+    assignError(newErrors, 'email', validateEmail(form.email, false));
+    assignError(newErrors, 'phone', validatePhone(form.phone, false));
+    assignError(newErrors, 'birthDate', validateBirthDate(form.birthDate, true));
+    assignError(newErrors, 'address', validateMaxLen(form.address, FieldLimits.address, 'Dirección'));
+    assignError(newErrors, 'allergies', validateMaxLen(form.allergies, FieldLimits.allergies, 'Alergias'));
+    assignError(newErrors, 'medicalNotes', validateMaxLen(form.medicalNotes, FieldLimits.medicalNotes, 'Notas médicas'));
 
     if (!form.level) newErrors.level = 'Selecciona un nivel';
     if (!form.grade) newErrors.grade = 'Selecciona un grado';
@@ -330,8 +338,43 @@ export default function StudentFormModal({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!validate() || saving) return;
+
+    const { hard, soft } = collectStudentInteractionIssues({
+      branchId: form.branchId,
+      cycleId,
+      firstName: form.firstName,
+      lastName: form.lastName,
+      level: form.level,
+      grade: form.grade,
+      group: form.group,
+      branchName: form.branchName,
+      linkedParentIds: form.linkedParents.map((lp) => lp.parentId),
+      classrooms,
+    });
+
+    if (hard.length > 0) {
+      const first = hard[0];
+      showToast(first.message, 'error');
+      if (first.code === 'CTX_NO_BRANCH') {
+        setErrors((prev) => ({ ...prev, branchId: first.message }));
+      }
+      if (first.code === 'CTX_NO_CYCLE') {
+        showToast(first.message, 'error');
+      }
+      if (first.code === 'REL_GROUP_NO_CLASSROOM') {
+        setErrors((prev) => ({
+          ...prev,
+          group: first.message,
+        }));
+      }
+      return;
+    }
+
+    const ok = await confirmSoftWarnings(soft);
+    if (!ok) return;
+
     onSave(form);
   };
 
@@ -441,6 +484,7 @@ export default function StudentFormModal({
             <Input
               label="Nombre(s)"
               required
+              maxLength={FieldLimits.name}
               value={form.firstName}
               onChange={(e) => handleChange('firstName', e.target.value)}
               error={errors.firstName}
@@ -449,6 +493,7 @@ export default function StudentFormModal({
             <Input
               label="Apellidos"
               required
+              maxLength={FieldLimits.name}
               value={form.lastName}
               onChange={(e) => handleChange('lastName', e.target.value)}
               error={errors.lastName}
@@ -457,6 +502,7 @@ export default function StudentFormModal({
             <Input
               label="Email"
               type="email"
+              maxLength={FieldLimits.email}
               value={form.email}
               onChange={(e) => handleChange('email', e.target.value)}
               error={errors.email}
@@ -464,6 +510,7 @@ export default function StudentFormModal({
             />
             <Input
               label="Teléfono"
+              maxLength={FieldLimits.phone}
               value={form.phone}
               onChange={(e) => handleChange('phone', e.target.value)}
               error={errors.phone}
@@ -499,6 +546,7 @@ export default function StudentFormModal({
             <div className="sm:col-span-2">
               <Input
                 label="Dirección"
+                maxLength={FieldLimits.address}
                 value={form.address}
                 onChange={(e) => handleChange('address', e.target.value)}
                 error={errors.address}
@@ -578,15 +626,16 @@ export default function StudentFormModal({
                       Salón {salonPreview.nombre}
                     </span>
                     <p className="text-xs text-emerald-600 mt-0.5">
-                      Vista previa local (catálogo de salones API pendiente)
+                      Vinculado por nivel, grado y grupo
                     </p>
                   </div>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-background-100/60 border border-background-200/40">
-                  <i className="ri-information-line text-foreground-400 text-sm flex-shrink-0" />
-                  <p className="text-xs text-foreground-500">
-                    Sin salón asignado para esta combinación (puedes crear el alumno igual)
+                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50/80 border border-amber-200">
+                  <i className="ri-error-warning-line text-amber-600 text-sm flex-shrink-0" />
+                  <p className="text-xs text-amber-800">
+                    Ese grupo no está vinculado a ningún salón de esta sucursal. Vincula el grupo en
+                    Salones o elige otra combinación.
                   </p>
                 </div>
               )
@@ -602,15 +651,19 @@ export default function StudentFormModal({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input
               label="Alergias"
+              maxLength={FieldLimits.allergies}
               value={form.allergies}
               onChange={(e) => handleChange('allergies', e.target.value)}
+              error={errors.allergies}
               placeholder="Separadas por coma. Ej: Penicilina, Lácteos"
               hint="Separa cada alergia con una coma"
             />
             <Input
               label="Notas Médicas"
+              maxLength={FieldLimits.medicalNotes}
               value={form.medicalNotes}
               onChange={(e) => handleChange('medicalNotes', e.target.value)}
+              error={errors.medicalNotes}
               placeholder="Condiciones, medicamentos, observaciones..."
             />
           </div>

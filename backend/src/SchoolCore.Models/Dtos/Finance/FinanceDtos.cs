@@ -50,6 +50,13 @@ public sealed class PaymentDto
     public DateTime PaidAt { get; set; }
     public string? Reference { get; set; }
     public string? Notes { get; set; }
+    /// <summary>posted | voided</summary>
+    public string Status { get; set; } = "posted";
+    public string? VoidReason { get; set; }
+    public DateTime? VoidedAt { get; set; }
+    public Guid? VoidedBy { get; set; }
+    public Guid? ReverseCashSessionId { get; set; }
+    public Guid? ReverseMovementId { get; set; }
     public DateTime CreatedAt { get; set; }
 }
 
@@ -58,12 +65,21 @@ public sealed class CreatePaymentRequest
     public Guid BranchId { get; set; }
     public Guid StudentId { get; set; }
     public Guid ChargeId { get; set; }
-    public Guid? CashSessionId { get; set; }
+    /// <summary>BR-58B: siempre obligatorio (cualquier método de pago).</summary>
+    public Guid CashSessionId { get; set; }
     public Guid? PaymentMethodId { get; set; }
     public decimal Amount { get; set; }
     public string? Reference { get; set; }
     public string? IdempotencyKey { get; set; }
     public string? Notes { get; set; }
+}
+
+public sealed class ReversePaymentRequest
+{
+    /// <summary>Motivo obligatorio del reverso contable (BR-59C).</summary>
+    public string Reason { get; set; } = string.Empty;
+    /// <summary>Opcional: corte abierto donde asentar el egreso/reverso.</summary>
+    public Guid? ReverseCashSessionId { get; set; }
 }
 
 public sealed class ExpenseDto

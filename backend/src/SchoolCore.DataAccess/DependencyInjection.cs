@@ -19,6 +19,7 @@ public static class DataAccessServiceCollectionExtensions
         services.AddScoped<IFinanceRepository, FinanceRepository>();
         services.AddScoped<IReportRepository, ReportRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<IRolePermissionRepository, RolePermissionRepository>();
         return services;
     }
 }

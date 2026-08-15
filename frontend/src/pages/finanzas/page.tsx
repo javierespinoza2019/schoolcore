@@ -10,13 +10,17 @@ import DataTable, { Column } from '@/components/base/DataTable';
 import { useToast } from '@/components/base/Toast';
 import type { PagoConcepto } from '@/mocks/finanzas';
 import RegistrarPagoModal from './components/RegistrarPagoModal';
+import ReversePaymentModal from './components/ReversePaymentModal';
 import AlumnosAdeudoPanel from './components/AlumnosAdeudoPanel';
 import EgresosSection from './components/EgresosSection';
 import { useSchoolContext } from '@/context/SchoolContext';
+import { usePermissions } from '@/permissions/PermissionContext';
+import { ViewCodes } from '@/permissions/viewCodes';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as financeApi from '@/api/financeApi';
 import type { FinanceSummary } from '@/api/financeApi';
+import { isGuid } from '@/api/helpers';
 
 type TabKey = 'general' | 'cobranza' | 'egresos';
 
@@ -48,10 +52,13 @@ export default function Finanzas() {
   const [filtroAlumno, setFiltroAlumno] = useState('');
   const [modalPago, setModalPago] = useState(false);
   const [pagoAlumnoPreseleccionado, setPagoAlumnoPreseleccionado] = useState('');
+  const [reverseTarget, setReverseTarget] = useState<PagoConcepto | null>(null);
   const [pagos, setPagos] = useState<PagoConcepto[]>([]);
   const [exportando, setExportando] = useState(false);
   const { showToast } = useToast();
   const { branchId, cycleId } = useSchoolContext();
+  const { can } = usePermissions();
+  const canReverse = can(ViewCodes.FINANCE, 'approve');
 
   const summaryQ = useApiResource({
     queryKey: queryKeys.finance.summary({ branchId, cycleId }),
@@ -129,6 +136,15 @@ export default function Finanzas() {
     setPagoAlumnoPreseleccionado(alumnoId);
     setModalPago(true);
   }, []);
+
+  const handleReversed = useCallback(
+    (pago: PagoConcepto) => {
+      setPagos((prev) => prev.map((p) => (p.id === pago.id ? { ...p, ...pago } : p)));
+      void queryClient.invalidateQueries({ queryKey: queryKeys.finance.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.cash.all });
+    },
+    [queryClient]
+  );
 
   const totalPendiente = useMemo(() => {
     if (resumen.saldoPendiente > 0) return resumen.saldoPendiente;
@@ -265,20 +281,20 @@ export default function Finanzas() {
           variant={
             row.estado === 'pagado'
               ? 'success'
-              : row.estado === 'pendiente'
-                ? 'warning'
-                : row.estado === 'parcial'
-                  ? 'info'
+              : row.estado === 'anulado'
+                ? 'default'
+                : row.estado === 'pendiente'
+                  ? 'warning'
                   : 'danger'
           }
           size="sm"
         >
           {row.estado === 'pagado'
             ? 'Pagado'
-            : row.estado === 'pendiente'
-              ? 'Pendiente'
-              : row.estado === 'parcial'
-                ? 'Parcial'
+            : row.estado === 'anulado'
+              ? 'Anulado'
+              : row.estado === 'pendiente'
+                ? 'Pendiente'
                 : 'Vencido'}
         </Badge>
       ),
@@ -301,7 +317,7 @@ export default function Finanzas() {
       key: 'fechaPago',
       header: 'Fecha Pago',
       sortable: true,
-      width: '14%',
+      width: '12%',
       render: (row) => (
         <span className="text-xs text-foreground-500">
           {row.fechaPago
@@ -310,6 +326,32 @@ export default function Finanzas() {
         </span>
       ),
     },
+    ...(canReverse
+      ? [
+          {
+            key: 'acciones',
+            header: '',
+            sortable: false,
+            width: '10%',
+            render: (row: PagoConcepto) =>
+              row.estado === 'pagado' && isGuid(row.id) ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  icon="ri-arrow-go-back-line"
+                  onClick={() => setReverseTarget(row)}
+                  title={row.voidReason || 'Reverso contable'}
+                >
+                  Reverso
+                </Button>
+              ) : row.estado === 'anulado' ? (
+                <span className="text-2xs text-foreground-400" title={row.voidReason}>
+                  Anulado
+                </span>
+              ) : null,
+          } as Column<PagoConcepto>,
+        ]
+      : []),
   ];
 
   return (
@@ -521,9 +563,9 @@ export default function Finanzas() {
                       options={[
                         { value: '', label: 'Todos' },
                         { value: 'pagado', label: 'Pagado' },
+                        { value: 'anulado', label: 'Anulado' },
                         { value: 'pendiente', label: 'Pendiente' },
                         { value: 'vencido', label: 'Vencido' },
-                        { value: 'parcial', label: 'Parcial' },
                       ]}
                       value={filtroEstado}
                       onChange={(e) => setFiltroEstado(e.target.value)}
@@ -592,6 +634,13 @@ export default function Finanzas() {
           }}
           onPagoRegistrado={handleRegistrarPago}
           preseleccionarAlumnoId={pagoAlumnoPreseleccionado || undefined}
+        />
+
+        <ReversePaymentModal
+          open={Boolean(reverseTarget)}
+          payment={reverseTarget}
+          onClose={() => setReverseTarget(null)}
+          onReversed={handleReversed}
         />
       </div>
     </MainLayout>

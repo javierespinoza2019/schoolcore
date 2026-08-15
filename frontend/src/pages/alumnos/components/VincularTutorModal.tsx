@@ -78,7 +78,7 @@ export default function VincularTutorModal({
   };
 
   const handleSubmit = async () => {
-    if (!validate() || !selectedParent) return;
+    if (!validate() || !selectedParent || saving) return;
     setSaving(true);
     try {
       const res = await studentsApi.linkParent(student.id, selectedParent.id, relationship);

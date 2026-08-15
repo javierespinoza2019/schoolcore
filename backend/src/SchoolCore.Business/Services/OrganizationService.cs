@@ -62,17 +62,29 @@ public interface IOrganizationService
 
     Task<IReadOnlyList<FeatureFlagDto>> ListFeatureFlagsAsync(Guid? branchId, CancellationToken ct = default);
     Task SetFeatureFlagAsync(SetFeatureFlagRequest request, CancellationToken ct = default);
+
+    Task<IReadOnlyList<RolePermissionGrantDto>> GetRolePermissionsAsync(Guid roleId, CancellationToken ct = default);
+    Task<IReadOnlyList<RolePermissionGrantDto>> ReplaceRolePermissionsAsync(Guid roleId, ReplaceRolePermissionsRequest request, CancellationToken ct = default);
 }
 
 public sealed class OrganizationService : IOrganizationService
 {
     private readonly IOrganizationRepository _repo;
+    private readonly IRolePermissionRepository _rolePermissions;
+    private readonly IPermissionResolver _permissionResolver;
     private readonly ITenantContext _tenant;
     private readonly IAuthService _auth;
 
-    public OrganizationService(IOrganizationRepository repo, ITenantContext tenant, IAuthService auth)
+    public OrganizationService(
+        IOrganizationRepository repo,
+        IRolePermissionRepository rolePermissions,
+        IPermissionResolver permissionResolver,
+        ITenantContext tenant,
+        IAuthService auth)
     {
         _repo = repo;
+        _rolePermissions = rolePermissions;
+        _permissionResolver = permissionResolver;
         _tenant = tenant;
         _auth = auth;
     }
@@ -375,6 +387,50 @@ public sealed class OrganizationService : IOrganizationService
         if (request.BranchId.HasValue)
             return ExecAsync(() => _repo.SetBranchFeatureFlagAsync(tenantId, request.BranchId.Value, request.FeatureKey, request.IsEnabled, ct));
         return ExecAsync(() => _repo.SetTenantFeatureFlagAsync(tenantId, request.FeatureKey, request.IsEnabled, ct));
+    }
+
+    public async Task<IReadOnlyList<RolePermissionGrantDto>> GetRolePermissionsAsync(Guid roleId, CancellationToken ct = default)
+    {
+        _ = Ctx();
+        var rows = await _rolePermissions.ListByRoleIdAsync(roleId, ct);
+        return AggregateGrants(rows);
+    }
+
+    public async Task<IReadOnlyList<RolePermissionGrantDto>> ReplaceRolePermissionsAsync(
+        Guid roleId, ReplaceRolePermissionsRequest request, CancellationToken ct = default)
+    {
+        _ = Ctx();
+        var flat = (request.Grants ?? Array.Empty<RolePermissionGrantDto>())
+            .Where(g => !string.IsNullOrWhiteSpace(g.ViewCode))
+            .SelectMany(g => (g.Actions ?? Array.Empty<string>())
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .Select(a => (g.ViewCode.Trim(), a.Trim())));
+
+        try
+        {
+            var rows = await _rolePermissions.ReplaceForRoleAsync(roleId, flat, ct);
+            _permissionResolver.InvalidateCache();
+            return AggregateGrants(rows);
+        }
+        catch (SqlException ex) when (ex.Number is 51001 or 51002)
+        {
+            throw AppException.BadRequest(ex.Message);
+        }
+    }
+
+    private static IReadOnlyList<RolePermissionGrantDto> AggregateGrants(
+        IReadOnlyList<(string ViewCode, string ActionCode)> rows)
+    {
+        return rows
+            .GroupBy(r => r.ViewCode, StringComparer.OrdinalIgnoreCase)
+            .Select(g => new RolePermissionGrantDto
+            {
+                ViewCode = g.Key,
+                Actions = g.Select(x => x.ActionCode).Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(a => a, StringComparer.Ordinal).ToList()
+            })
+            .OrderBy(g => g.ViewCode, StringComparer.Ordinal)
+            .ToList();
     }
 
     private static void ValidateBranch(BranchUpsertRequest request)

@@ -18,14 +18,14 @@ import { useToast } from '@/components/base/Toast';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
+import { friendlyApiError } from '@/lib/interaction/messages';
+import { newPaymentIdempotencyKey } from '@/lib/finance/idempotency';
 
 interface RegistrarPagoModalProps {
   open: boolean;
   onClose: () => void;
   onPagoRegistrado: (pago: PagoConcepto) => void;
   preseleccionarAlumnoId?: string;
-  /** Si true, exige caja abierta (recomendado). */
-  requireOpenCashSession?: boolean;
 }
 
 function formatMoney(n: number) {
@@ -41,7 +41,6 @@ export default function RegistrarPagoModal({
   onClose,
   onPagoRegistrado,
   preseleccionarAlumnoId,
-  requireOpenCashSession = true,
 }: RegistrarPagoModalProps) {
   const { showToast } = useToast();
   const { branchId } = useSchoolContext();
@@ -51,6 +50,8 @@ export default function RegistrarPagoModal({
   const [reference, setReference] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  /** Stable for this charge selection — not regenerated on each click (BR-53). */
+  const [idempotencyKey, setIdempotencyKey] = useState('');
 
   const studentsQ = useQuery({
     queryKey: queryKeys.students.list({ branchId, forPayment: true }),
@@ -95,11 +96,20 @@ export default function RegistrarPagoModal({
     setReference('');
     setErrors({});
     setSaving(false);
+    setIdempotencyKey('');
   }, [open, preseleccionarAlumnoId]);
 
   useEffect(() => {
     setChargeId('');
   }, [studentId]);
+
+  useEffect(() => {
+    if (open && isGuid(chargeId)) {
+      setIdempotencyKey(newPaymentIdempotencyKey(chargeId));
+    } else {
+      setIdempotencyKey('');
+    }
+  }, [open, chargeId]);
 
   useEffect(() => {
     if (!paymentMethodId && methods.length > 0) {
@@ -119,13 +129,14 @@ export default function RegistrarPagoModal({
   };
 
   const handleSubmit = async () => {
+    if (saving) return;
     const errs: Record<string, string> = {};
     if (!isGuid(branchId)) errs.branch = 'Selecciona una sucursal en el contexto';
     if (!isGuid(studentId)) errs.studentId = 'Selecciona un alumno';
     if (!isGuid(chargeId)) errs.chargeId = 'Selecciona un cargo pendiente';
     if (!isGuid(paymentMethodId)) errs.paymentMethodId = 'Selecciona un método de pago';
-    if (requireOpenCashSession && !openSession?.id) {
-      errs.session = 'Abre una sesión de caja antes de cobrar';
+    if (!openSession?.id) {
+      errs.session = 'Abre un corte de caja antes de cobrar (obligatorio para cualquier método)';
     }
     if (!CASH_V1_PARTIAL_PAYMENTS && selectedCharge && selectedCharge.netAmount <= 0) {
       errs.chargeId = 'El cargo no tiene monto neto válido';
@@ -141,16 +152,16 @@ export default function RegistrarPagoModal({
       chargeId,
       amount: selectedCharge.netAmount,
       paymentMethodId,
-      cashSessionId: openSession?.id,
+      cashSessionId: openSession!.id,
       reference: reference.trim() || undefined,
-      idempotencyKey: `pay-${chargeId}-${Date.now()}`,
+      idempotencyKey: idempotencyKey || newPaymentIdempotencyKey(chargeId),
       concept: selectedCharge.conceptName,
       notes: undefined,
     });
     setSaving(false);
 
     if (!res.success || !res.data) {
-      showToast(res.message || 'No se pudo registrar el pago', 'error');
+      showToast(friendlyApiError(res) || 'No se pudo registrar el pago', 'error');
       return;
     }
 
@@ -191,22 +202,20 @@ export default function RegistrarPagoModal({
           </div>
         )}
 
-        {requireOpenCashSession && (
-          <div
-            className={`text-2xs rounded-md px-3 py-2 border ${
-              openSession
-                ? 'text-emerald-800 bg-emerald-50 border-emerald-100'
-                : 'text-amber-800 bg-amber-50 border-amber-100'
-            }`}
-          >
-            {openSessionQ.isLoading
-              ? 'Verificando sesión de caja...'
-              : openSession
-                ? `Caja abierta · turno ${openSession.turno} · ingresos $${openSession.totalIngresos.toLocaleString('es-MX')}`
-                : 'No hay caja abierta. Ábrela en /caja antes de cobrar.'}
-            {errors.session && <p className="mt-1 font-medium">{errors.session}</p>}
-          </div>
-        )}
+        <div
+          className={`text-2xs rounded-md px-3 py-2 border ${
+            openSession
+              ? 'text-emerald-800 bg-emerald-50 border-emerald-100'
+              : 'text-amber-800 bg-amber-50 border-amber-100'
+          }`}
+        >
+          {openSessionQ.isLoading
+            ? 'Verificando corte de caja...'
+            : openSession
+              ? `Corte abierto · turno ${openSession.turno} · ingresos $${openSession.totalIngresos.toLocaleString('es-MX')}`
+              : 'No hay corte abierto. Ábrelo en Caja antes de cobrar (obligatorio para cualquier método).'}
+          {errors.session && <p className="mt-1 font-medium">{errors.session}</p>}
+        </div>
 
         {!CASH_V1_PARTIAL_PAYMENTS && (
           <div className="text-2xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">

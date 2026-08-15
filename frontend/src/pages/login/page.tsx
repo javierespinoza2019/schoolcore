@@ -5,6 +5,7 @@ import Card from '@/components/base/Card';
 import Input from '@/components/base/Input';
 import { useAuth } from '@/auth/AuthContext';
 import { env, isProduction } from '@/config/env';
+import { FieldLimits } from '@/lib/validation/fields';
 
 export default function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
@@ -20,6 +21,7 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (isLoading) return;
     setError(null);
 
     if (!email.trim() || !password) {
@@ -60,6 +62,7 @@ export default function LoginPage() {
               type="email"
               autoComplete="email"
               required
+              maxLength={FieldLimits.email}
               icon="ri-mail-line"
               placeholder="usuario@colegio.edu.mx"
               value={email}
@@ -73,6 +76,7 @@ export default function LoginPage() {
               required
               icon="ri-lock-line"
               iconRight={showPassword ? 'ri-eye-off-line' : 'ri-eye-line'}
+              iconRightAriaLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
               onIconClick={() => setShowPassword((v) => !v)}
               placeholder="••••••••"
               value={password}
@@ -80,8 +84,8 @@ export default function LoginPage() {
             />
 
             {error && (
-              <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-100 px-3 py-2">
-                <i className="ri-error-warning-line text-red-500 mt-0.5" />
+              <div className="flex items-start gap-2 rounded-md bg-red-50 border border-red-100 px-3 py-2" role="alert">
+                <i className="ri-error-warning-line text-red-500 mt-0.5" aria-hidden="true" />
                 <p className="text-xs text-red-600">{error}</p>
               </div>
             )}

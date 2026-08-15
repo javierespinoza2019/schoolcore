@@ -11,6 +11,15 @@ import {
   MEXICO_TIME_ZONES,
   PLATFORM_DEFAULT_TIME_ZONE,
 } from '@/lib/timeZones';
+import {
+  FieldLimits,
+  assignError,
+  validateEmail,
+  validateMaxLen,
+  validatePhone,
+  validatePositiveNumber,
+  validatePostalCodeMx,
+} from '@/lib/validation/fields';
 
 interface SucursalFormModalProps {
   open: boolean;
@@ -50,15 +59,6 @@ const emptyForm: SucursalFormData = {
 };
 
 const estadosOperativos = ['Operando', 'Mantenimiento', 'Próxima Apertura'];
-
-function isValidEmail(email: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-}
-
-function isValidPhone(phone: string) {
-  const digits = phone.replace(/[\s\-\+\(\)]/g, '');
-  return digits.length >= 8;
-}
 
 export default function SucursalFormModal({ open, onClose, onSave, sucursal, saving = false }: SucursalFormModalProps) {
   const { showToast } = useToast();
@@ -122,33 +122,28 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
 
     if (!form.nombre.trim()) newErrors.nombre = 'El nombre del campus es obligatorio';
     else if (form.nombre.trim().length < 3) newErrors.nombre = 'Mínimo 3 caracteres';
+    assignError(newErrors, 'nombre', validateMaxLen(form.nombre, FieldLimits.branchName, 'El nombre'));
 
     if (!form.direccion.trim()) newErrors.direccion = 'La dirección es obligatoria';
+    assignError(newErrors, 'direccion', validateMaxLen(form.direccion, FieldLimits.addressBranch, 'Dirección'));
 
     if (!form.ciudad.trim()) newErrors.ciudad = 'La ciudad es obligatoria';
+    assignError(newErrors, 'ciudad', validateMaxLen(form.ciudad, FieldLimits.city, 'Ciudad'));
 
     if (!form.estado.trim()) newErrors.estado = 'El estado es obligatorio';
+    assignError(newErrors, 'estado', validateMaxLen(form.estado, FieldLimits.state, 'Estado'));
 
-    if (!form.codigoPostal.trim()) newErrors.codigoPostal = 'El código postal es obligatorio';
-    else if (!/^\d{5}$/.test(form.codigoPostal.trim())) newErrors.codigoPostal = 'Debe ser 5 dígitos';
-
-    if (!form.telefono.trim()) newErrors.telefono = 'El teléfono es obligatorio';
-    else if (!isValidPhone(form.telefono.trim())) newErrors.telefono = 'Mínimo 8 dígitos';
-
-    if (!form.email.trim()) newErrors.email = 'El email es obligatorio';
-    else if (!isValidEmail(form.email.trim())) newErrors.email = 'Formato de email inválido';
+    assignError(newErrors, 'codigoPostal', validatePostalCodeMx(form.codigoPostal, true));
+    assignError(newErrors, 'telefono', validatePhone(form.telefono, true));
+    assignError(newErrors, 'email', validateEmail(form.email, true));
 
     if (!form.director.trim()) newErrors.director = 'El nombre del director es obligatorio';
     else if (form.director.trim().length < 3) newErrors.director = 'Mínimo 3 caracteres';
+    assignError(newErrors, 'director', validateMaxLen(form.director, FieldLimits.directorName, 'El nombre del director'));
 
-    if (!form.directorEmail.trim()) newErrors.directorEmail = 'El email del director es obligatorio';
-    else if (!isValidEmail(form.directorEmail.trim())) newErrors.directorEmail = 'Formato de email inválido';
-
-    if (!form.directorTelefono.trim()) newErrors.directorTelefono = 'El teléfono del director es obligatorio';
-    else if (!isValidPhone(form.directorTelefono.trim())) newErrors.directorTelefono = 'Mínimo 8 dígitos';
-
-    if (!form.capacidadTotal.trim()) newErrors.capacidadTotal = 'La capacidad es obligatoria';
-    else if (isNaN(Number(form.capacidadTotal)) || Number(form.capacidadTotal) <= 0) newErrors.capacidadTotal = 'Ingresa un número válido mayor a 0';
+    assignError(newErrors, 'directorEmail', validateEmail(form.directorEmail, true));
+    assignError(newErrors, 'directorTelefono', validatePhone(form.directorTelefono, true, 'El teléfono del director'));
+    assignError(newErrors, 'capacidadTotal', validatePositiveNumber(form.capacidadTotal, 'La capacidad'));
 
     if (!form.fechaApertura) newErrors.fechaApertura = 'La fecha de apertura es obligatoria';
 
@@ -161,7 +156,7 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
   };
 
   const handleSubmit = () => {
-    if (!validate()) return;
+    if (!validate() || saving) return;
     onSave({
       ...form,
       timeZoneId: tzMode === 'inherit' ? null : form.timeZoneId,
@@ -178,7 +173,7 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
       footer={
         <>
           <Button variant="ghost" size="sm" onClick={onClose} disabled={saving}>Cancelar</Button>
-          <Button variant="primary" size="sm" icon="ri-save-line" onClick={handleSubmit} loading={saving}>
+          <Button variant="primary" size="sm" icon="ri-save-line" onClick={handleSubmit} disabled={saving} loading={saving}>
             {sucursal ? 'Guardar Cambios' : 'Registrar Sucursal'}
           </Button>
         </>
@@ -192,17 +187,17 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2">
-              <Input label="Nombre del Campus" required value={form.nombre} onChange={(e) => handleChange('nombre', e.target.value)} error={errors.nombre} placeholder="Ej. Campus Norte" />
+              <Input label="Nombre del Campus" required maxLength={FieldLimits.branchName} value={form.nombre} onChange={(e) => handleChange('nombre', e.target.value)} error={errors.nombre} placeholder="Ej. Campus Norte" />
             </div>
             <div className="sm:col-span-2">
-              <Input label="Dirección" required value={form.direccion} onChange={(e) => handleChange('direccion', e.target.value)} error={errors.direccion} placeholder="Calle, Número, Colonia" />
+              <Input label="Dirección" required maxLength={FieldLimits.addressBranch} value={form.direccion} onChange={(e) => handleChange('direccion', e.target.value)} error={errors.direccion} placeholder="Calle, Número, Colonia" />
             </div>
-            <Input label="Ciudad" required value={form.ciudad} onChange={(e) => handleChange('ciudad', e.target.value)} error={errors.ciudad} placeholder="Ej. Ciudad de México" />
-            <Input label="Estado" required value={form.estado} onChange={(e) => handleChange('estado', e.target.value)} error={errors.estado} placeholder="Ej. CDMX" />
-            <Input label="Código Postal" required value={form.codigoPostal} onChange={(e) => handleChange('codigoPostal', e.target.value)} error={errors.codigoPostal} placeholder="07300" />
+            <Input label="Ciudad" required maxLength={FieldLimits.city} value={form.ciudad} onChange={(e) => handleChange('ciudad', e.target.value)} error={errors.ciudad} placeholder="Ej. Ciudad de México" />
+            <Input label="Estado" required maxLength={FieldLimits.state} value={form.estado} onChange={(e) => handleChange('estado', e.target.value)} error={errors.estado} placeholder="Ej. CDMX" />
+            <Input label="Código Postal" required maxLength={5} value={form.codigoPostal} onChange={(e) => handleChange('codigoPostal', e.target.value)} error={errors.codigoPostal} placeholder="07300" />
             <Input label="Superficie" value={form.superficie} onChange={(e) => handleChange('superficie', e.target.value)} placeholder="Ej. 12,500 m²" />
-            <Input label="Teléfono" required value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
-            <Input label="Email" type="email" required value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="campus@SchoolCore.edu.mx" />
+            <Input label="Teléfono" required maxLength={FieldLimits.phone} value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
+            <Input label="Email" type="email" required maxLength={FieldLimits.email} value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="campus@SchoolCore.edu.mx" />
           </div>
         </div>
 
@@ -212,9 +207,9 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
             Director
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Input label="Nombre del Director" required value={form.director} onChange={(e) => handleChange('director', e.target.value)} error={errors.director} placeholder="Ej. Dr. Ricardo Álvarez" />
-            <Input label="Email del Director" type="email" required value={form.directorEmail} onChange={(e) => handleChange('directorEmail', e.target.value)} error={errors.directorEmail} placeholder="director@SchoolCore.edu.mx" />
-            <Input label="Teléfono del Director" required value={form.directorTelefono} onChange={(e) => handleChange('directorTelefono', e.target.value)} error={errors.directorTelefono} placeholder="55-0000-0000" />
+            <Input label="Nombre del Director" required maxLength={FieldLimits.directorName} value={form.director} onChange={(e) => handleChange('director', e.target.value)} error={errors.director} placeholder="Ej. Dr. Ricardo Álvarez" />
+            <Input label="Email del Director" type="email" required maxLength={FieldLimits.email} value={form.directorEmail} onChange={(e) => handleChange('directorEmail', e.target.value)} error={errors.directorEmail} placeholder="director@SchoolCore.edu.mx" />
+            <Input label="Teléfono del Director" required maxLength={FieldLimits.phone} value={form.directorTelefono} onChange={(e) => handleChange('directorTelefono', e.target.value)} error={errors.directorTelefono} placeholder="55-0000-0000" />
           </div>
         </div>
 

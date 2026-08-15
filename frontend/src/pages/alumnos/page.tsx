@@ -26,6 +26,8 @@ import { usePermissions } from '@/permissions/PermissionContext';
 import { ViewCodes } from '@/permissions/viewCodes';
 import { isGuid } from '@/api/helpers';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
+import ModuleContextGate from '@/components/feature/ModuleContextGate';
+import { friendlyApiError } from '@/lib/interaction/messages';
 
 const formatCurrency = (amount: number) => {
   return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 0 }).format(amount);
@@ -234,10 +236,8 @@ export default function Alumnos() {
         ? await studentsApi.updateStudent(editingStudent.id, payload)
         : await studentsApi.createStudent(payload);
       if (!res.success || !res.data) {
-        const details = (res.errors ?? []).filter(Boolean).join('. ');
         showToast(
-          details ||
-            res.message ||
+          friendlyApiError(res) ||
             (editingStudent ? 'No se pudo actualizar' : 'No se pudo crear el alumno'),
           'error'
         );
@@ -332,6 +332,7 @@ export default function Alumnos() {
   ];
 
   return (
+    <ModuleContextGate>
     <MainLayout>
       <div className="max-w-[1440px] mx-auto">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
@@ -521,5 +522,6 @@ export default function Alumnos() {
         />
       </div>
     </MainLayout>
+    </ModuleContextGate>
   );
 }
