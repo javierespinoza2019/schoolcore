@@ -24,7 +24,46 @@ function normalizeSession(raw: Record<string, unknown>): CorteCaja {
     montoFinal: closing,
     diferencia: Number(raw.differenceAmount ?? raw.diferencia ?? 0),
     estado: status === 'open' || status === 'abierto' ? 'abierto' : status === 'conciliado' ? 'conciliado' : 'cerrado',
-    transacciones: Number(raw.transacciones ?? 0),
+    // API no expone conteo; UI usa movimientos cuando es 0/undefined.
+    transacciones: raw.transacciones != null ? Number(raw.transacciones) : undefined,
+  } as CorteCaja;
+}
+
+function parseDenomJson(raw: unknown): { denominacion: number; cantidad: number }[] {
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((row) => {
+      const r = (row ?? {}) as Record<string, unknown>;
+      return {
+        denominacion: Number(r.denominacion ?? r.denomination ?? r.value ?? 0),
+        cantidad: Number(r.cantidad ?? r.quantity ?? r.count ?? 0),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/** Normaliza CashAuditDto → ArqueoCaja UI. */
+function normalizeAudit(raw: Record<string, unknown>, sessionId?: string): ArqueoCaja {
+  return {
+    id: String(raw.id ?? ''),
+    corteId: String(raw.cashSessionId ?? raw.corteId ?? sessionId ?? ''),
+    fecha: String(raw.createdAt ?? raw.fecha ?? '').slice(0, 10),
+    usuario: String(raw.createdByName ?? raw.usuario ?? raw.userId ?? ''),
+    billetes: parseDenomJson(raw.billsJson ?? raw.billetes),
+    monedas: parseDenomJson(raw.coinsJson ?? raw.monedas),
+    totalEfectivo: Number(raw.totalCash ?? raw.totalEfectivo ?? 0),
+    totalTarjeta: Number(raw.totalCard ?? raw.totalTarjeta ?? 0),
+    totalTransferencia: Number(raw.totalTransfer ?? raw.totalTransferencia ?? 0),
+    totalCheque: Number(raw.totalCheck ?? raw.totalCheque ?? 0),
+    totalSistema: Number(raw.systemTotal ?? raw.totalSistema ?? 0),
+    diferencia: Number(raw.differenceAmount ?? raw.diferencia ?? 0),
+    observaciones: raw.observations != null || raw.observaciones != null
+      ? String(raw.observations ?? raw.observaciones)
+      : undefined,
   };
 }
 
@@ -162,7 +201,7 @@ export async function listCashMovements(sessionId: string): Promise<FetchResult<
             : 'efectivo') as MovimientoCaja['metodoPago'],
       referencia: String(r.reference ?? r.referencia ?? '') || undefined,
       alumno: String(r.studentName ?? r.alumno ?? '') || undefined,
-      usuario: String(r.createdBy ?? r.usuario ?? ''),
+      usuario: String(r.createdByName ?? r.usuario ?? r.createdBy ?? '') || '—',
     } satisfies MovimientoCaja;
   });
   return { data: items, source: result.source, message: result.message };
@@ -201,11 +240,7 @@ export async function listArqueos(params: {
   for (const s of sessions.data) {
     const res = await apiClient<Record<string, unknown> | null>(`/cash-sessions/${s.id}/audit`);
     if (res.success && res.data) {
-      audits.push({
-        ...(res.data as unknown as ArqueoCaja),
-        id: String(res.data.id ?? ''),
-        corteId: s.id,
-      });
+      audits.push(normalizeAudit(res.data as Record<string, unknown>, s.id));
     }
   }
   return { data: audits, source: 'api' };

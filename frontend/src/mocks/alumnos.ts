@@ -70,6 +70,9 @@ export interface Student {
   balance: number;
   lastPayment: string;
   scholarship: number;
+  /** Solo en vínculos tutor↔alumno (ListByGuardian). */
+  relationship?: string;
+  isPrimary?: boolean;
 }
 
 export const studentLevels = ['Preescolar', 'Primaria', 'Secundaria', 'Preparatoria'];

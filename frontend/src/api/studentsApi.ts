@@ -1,5 +1,5 @@
 import { apiClient } from '@/api/apiClient';
-import { buildQuery, fetchOrFallback, isGuid, unwrapList } from '@/api/helpers';
+import { buildQuery, fetchOrFallback, isGuid, unwrapList, unwrapTotalCount } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
 import type { Student, StudentDocument, StudentPayment, StudentTimelineEvent } from '@/mocks/alumnos';
 import { students as mockStudents } from '@/mocks/alumnos';
@@ -99,14 +99,14 @@ function toStoredPhotoUrl(value?: string | null): string | null {
   return null;
 }
 
-/** POST /documents — foto del alumno (entityType=student). Devuelve el id del documento. */
+/** POST /documents — foto del alumno (entityType distinto al expediente). */
 export async function uploadStudentPhoto(
   studentId: string,
   file: File
 ): Promise<ApiResponse<string>> {
   const form = new FormData();
   form.append('file', file);
-  form.append('entityType', 'student');
+  form.append('entityType', 'student-photo');
   form.append('entityId', studentId);
   const res = await apiClient<Record<string, unknown>>('/documents', { method: 'POST', body: form });
   if (res.success && res.data) {
@@ -130,7 +130,12 @@ export async function listStudents(params: StudentListParams = {}): Promise<Fetc
     () => mockStudents
   );
   const items = unwrapList(result.data).map(normalizeStudent);
-  return { data: items, source: result.source, message: result.message };
+  return {
+    data: items,
+    totalCount: unwrapTotalCount(result.data, items.length),
+    source: result.source,
+    message: result.message,
+  };
 }
 
 /** GET /students/:id */
@@ -200,11 +205,12 @@ export async function deleteStudentDocument(
   return apiClient<null>(`/documents/${documentId}`, { method: 'DELETE' });
 }
 
-/** GET /students/:id/guardians */
+/** GET /students/:id/guardians — sin fallback a [] (error debe propagarse a la UI). */
 export async function listStudentGuardians(studentId: string): Promise<FetchResult<Student['parents']>> {
   const result = await fetchOrFallback<unknown[]>(
     () => apiClient(`/students/${studentId}/guardians`),
-    () => []
+    () => [],
+    { allowFallback: false }
   );
   const items = unwrapList(result.data).map((raw) => {
     const r = (raw ?? {}) as Record<string, unknown>;
@@ -243,28 +249,33 @@ export async function unlinkParent(studentId: string, parentId: string): Promise
   return apiClient<null>(`/students/${studentId}/guardians/${parentId}`, { method: 'DELETE' });
 }
 
-/** GET /documents?entityType=student&entityId= */
+/** GET /documents?entityType=student&entityId= (no incluye student-photo). */
 export async function listStudentDocuments(
-  studentId: string
+  studentId: string,
+  opts?: { excludeDocumentIds?: string[] }
 ): Promise<FetchResult<StudentDocument[]>> {
   const q = buildQuery({ entityType: 'student', entityId: studentId, page: 1, pageSize: 100 });
   const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
     () => apiClient(`/documents${q}`),
-    () => []
+    () => [],
+    { allowFallback: false }
   );
-  const items = unwrapList(result.data).map((raw) => {
-    const d = raw as Record<string, unknown>;
-    const statusRaw = String(d.status ?? 'pending').toLowerCase();
-    const status: StudentDocument['status'] =
-      statusRaw === 'verified' || statusRaw === 'rejected' ? statusRaw : 'pending';
-    return {
-      id: String(d.id ?? ''),
-      name: String(d.originalFileName ?? d.name ?? 'Documento'),
-      type: String(d.extension ?? d.contentType ?? '').replace(/^\./, '') || 'file',
-      uploadDate: String(d.createdAt ?? '').slice(0, 10),
-      status,
-    };
-  });
+  const exclude = new Set((opts?.excludeDocumentIds ?? []).filter(Boolean));
+  const items = unwrapList(result.data)
+    .map((raw) => {
+      const d = raw as Record<string, unknown>;
+      const statusRaw = String(d.status ?? 'pending').toLowerCase();
+      const status: StudentDocument['status'] =
+        statusRaw === 'verified' || statusRaw === 'rejected' ? statusRaw : 'pending';
+      return {
+        id: String(d.id ?? ''),
+        name: String(d.originalFileName ?? d.name ?? 'Documento'),
+        type: String(d.extension ?? d.contentType ?? '').replace(/^\./, '') || 'file',
+        uploadDate: String(d.createdAt ?? '').slice(0, 10),
+        status,
+      };
+    })
+    .filter((d) => !exclude.has(d.id));
   return { data: items, source: result.source, message: result.message };
 }
 
@@ -275,7 +286,8 @@ export async function listStudentTimeline(
   const q = buildQuery({ entityType: 'student', entityId: studentId });
   const result = await fetchOrFallback<Record<string, unknown>[] | PagedResult<Record<string, unknown>>>(
     () => apiClient(`/timeline${q}`),
-    () => []
+    () => [],
+    { allowFallback: false }
   );
   const rows = Array.isArray(result.data)
     ? result.data

@@ -7,6 +7,8 @@ interface TeacherAvatarProps {
   alt: string;
   className?: string;
   filenameHint?: string;
+  /** Remix Icon class when there is no image (default: ri-user-line). */
+  emptyIcon?: string;
 }
 
 function isDirectImageSrc(value: string): boolean {
@@ -18,8 +20,14 @@ function isDirectImageSrc(value: string): boolean {
   );
 }
 
-/** Muestra foto de profesor: data/http directo, o GUID de /documents/{id}/download. */
-export default function TeacherAvatar({ src, alt, className, filenameHint = 'photo' }: TeacherAvatarProps) {
+/** Muestra foto: data/http directo, o GUID de /documents/{id}/download. */
+export default function TeacherAvatar({
+  src,
+  alt,
+  className,
+  filenameHint = 'photo',
+  emptyIcon = 'ri-user-line',
+}: TeacherAvatarProps) {
   const [blobUrl, setBlobUrl] = useState<string>('');
 
   useEffect(() => {
@@ -46,7 +54,7 @@ export default function TeacherAvatar({ src, alt, className, filenameHint = 'pho
       revoked = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [src]);
+  }, [src, filenameHint]);
 
   const value = (src ?? '').trim();
   const display = !value
@@ -63,7 +71,7 @@ export default function TeacherAvatar({ src, alt, className, filenameHint = 'pho
         className={`flex items-center justify-center bg-secondary-100 text-foreground-400 ${className ?? ''}`}
         aria-label={alt}
       >
-        <i className="ri-user-line" />
+        <i className={emptyIcon} />
       </div>
     );
   }

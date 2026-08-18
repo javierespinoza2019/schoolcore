@@ -10,6 +10,7 @@ import * as parentsApi from '@/api/parentsApi';
 import * as studentsApi from '@/api/studentsApi';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface VincularTutorModalProps {
   open: boolean;
@@ -32,7 +33,7 @@ export default function VincularTutorModal({
 
   const parentsQuery = useQuery({
     queryKey: queryKeys.parents.list({}),
-    queryFn: () => parentsApi.listParents({ pageSize: 200 }),
+    queryFn: () => parentsApi.listParents({ pageSize: 100 }),
     enabled: open,
   });
   const allParents: Parent[] = parentsQuery.data?.data ?? [];
@@ -74,7 +75,11 @@ export default function VincularTutorModal({
       newErrors.parent = 'Selecciona un tutor de la lista';
     }
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (Object.keys(newErrors).length > 0) {
+      afterValidationErrors(newErrors);
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -83,7 +88,9 @@ export default function VincularTutorModal({
     try {
       const res = await studentsApi.linkParent(student.id, selectedParent.id, relationship);
       if (!res.success) {
-        setErrors({ parent: res.message || 'No se pudo vincular el tutor' });
+        const apiErrs = { parent: res.message || 'No se pudo vincular el tutor' };
+        setErrors(apiErrs);
+        afterValidationErrors(apiErrs);
         return;
       }
 
@@ -102,7 +109,9 @@ export default function VincularTutorModal({
       });
       onClose();
     } catch {
-      setErrors({ parent: 'Error de red al vincular' });
+      const apiErrs = { parent: 'Error de red al vincular' };
+      setErrors(apiErrs);
+      afterValidationErrors(apiErrs);
     } finally {
       setSaving(false);
     }
@@ -148,6 +157,17 @@ export default function VincularTutorModal({
             <div className="flex flex-col items-center justify-center py-10 text-foreground-400">
               <i className="ri-loader-4-line animate-spin text-2xl mb-2" />
               <p className="text-sm">Cargando tutores...</p>
+            </div>
+          ) : parentsQuery.isError ? (
+            <div className="flex flex-col items-center justify-center py-10 text-red-500">
+              <i className="ri-error-warning-line text-2xl mb-2" />
+              <p className="text-sm font-medium">No se pudieron cargar los tutores</p>
+              <p className="text-xs text-foreground-500 mt-1 mb-3">
+                {(parentsQuery.error as Error)?.message || 'Error de red o del servidor'}
+              </p>
+              <Button variant="outline" size="sm" icon="ri-refresh-line" onClick={() => void parentsQuery.refetch()}>
+                Reintentar
+              </Button>
             </div>
           ) : availableParents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-foreground-400">

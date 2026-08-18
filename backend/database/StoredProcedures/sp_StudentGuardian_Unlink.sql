@@ -9,5 +9,6 @@ CREATE OR ALTER PROCEDURE dbo.sp_StudentGuardian_Unlink
     @TenantId UNIQUEIDENTIFIER, @StudentId UNIQUEIDENTIFIER, @GuardianId UNIQUEIDENTIFIER
 AS BEGIN SET NOCOUNT ON;
     DELETE FROM dbo.StudentGuardian WHERE TenantId=@TenantId AND StudentId=@StudentId AND GuardianId=@GuardianId;
+    IF @@ROWCOUNT=0 THROW 51004, 'Student-guardian link not found.', 1;
 END
 GO

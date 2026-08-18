@@ -1,6 +1,6 @@
 import { apiClient } from '@/api/apiClient';
-import { isGuid } from '@/api/helpers';
-import type { ApiResponse } from '@/api/types';
+import { buildQuery, isGuid, unwrapList, unwrapTotalCount } from '@/api/helpers';
+import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
 import * as studentsApi from '@/api/studentsApi';
 import * as financeApi from '@/api/financeApi';
 
@@ -50,6 +50,60 @@ export interface EnrollmentResult {
   chargeConceptName?: string;
   warnings: string[];
   message?: string;
+}
+
+export interface EnrollmentSummary {
+  id: string;
+  enrollmentNumber: string;
+  status: string;
+  currentStep: number;
+  studentId?: string;
+  createdAt: string;
+}
+
+function normalizeEnrollment(raw: Record<string, unknown>): EnrollmentSummary {
+  return {
+    id: String(raw.id ?? ''),
+    enrollmentNumber: String(raw.enrollmentNumber ?? ''),
+    status: String(raw.status ?? 'draft'),
+    currentStep: Number(raw.currentStep ?? 0),
+    studentId: raw.studentId ? String(raw.studentId) : undefined,
+    createdAt: String(raw.createdAt ?? '').slice(0, 10),
+  };
+}
+
+/** GET /enrollments */
+export async function listEnrollments(params: {
+  branchId?: string | null;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+} = {}): Promise<FetchResult<EnrollmentSummary[]>> {
+  const q = buildQuery({
+    branchId: params.branchId,
+    status: params.status,
+    page: params.page ?? 1,
+    pageSize: params.pageSize ?? 50,
+  });
+  const res = await apiClient<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(`/enrollments${q}`);
+  if (!res.success) {
+    throw new Error(res.message || 'No se pudieron cargar inscripciones');
+  }
+  const items = unwrapList(res.data).map((x) => normalizeEnrollment(x as Record<string, unknown>));
+  return {
+    data: items,
+    totalCount: unwrapTotalCount(res.data, items.length),
+    source: 'api',
+    message: res.message,
+  };
+}
+
+/** DELETE /enrollments/:id — soft-delete borrador. */
+export async function deleteEnrollment(id: string): Promise<ApiResponse<null>> {
+  if (!isGuid(id)) {
+    return { success: false, data: null, message: 'Id inválido', errors: ['InvalidId'] };
+  }
+  return apiClient<null>(`/enrollments/${id}`, { method: 'DELETE' });
 }
 
 const LEVEL_LABELS: Record<string, string> = {
@@ -143,6 +197,8 @@ export async function submitEnrollment(
 
   const levelLabel = LEVEL_LABELS[payload.level] ?? payload.level;
   const gradeLabel = payload.grade ? (payload.grade.includes('°') ? payload.grade : `${payload.grade}°`) : '';
+  const maternal = (payload.student.maternalLastName || '').trim();
+  const lastName = [payload.student.lastName.trim(), maternal].filter(Boolean).join(' ');
 
   const studentRes = await studentsApi.createStudent({
     branchId: branchId!,
@@ -150,7 +206,7 @@ export async function submitEnrollment(
     classroomId: isGuid(payload.classroomId) ? String(payload.classroomId) : undefined,
     enrollment: enrollmentNumber || undefined,
     firstName: payload.student.firstName.trim(),
-    lastName: payload.student.lastName.trim(),
+    lastName,
     birthDate: payload.student.birthDate,
     gender: (payload.student.gender as 'M' | 'F') || 'M',
     email: payload.student.email?.trim() || '',

@@ -15,9 +15,10 @@ import { queryKeys } from '@/api/queryKeys';
 import {
   FieldLimits,
   assignError,
-  validateMaxLen,
   validatePositiveNumber,
+  validateTextFree,
 } from '@/lib/validation/fields';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface SalonFormModalProps {
   open: boolean;
@@ -269,11 +270,10 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
     const newErrors: Record<string, string> = {};
 
     if (!form.nombre.trim()) newErrors.nombre = 'El nombre/código es obligatorio';
-    assignError(newErrors, 'nombre', validateMaxLen(form.nombre, FieldLimits.classroomName, 'El nombre'));
+    assignError(newErrors, 'nombre', validateTextFree(form.nombre, FieldLimits.classroomName, 'El nombre', true));
     if (!form.tipo) newErrors.tipo = 'Selecciona un tipo';
     assignError(newErrors, 'capacidad', validatePositiveNumber(form.capacidad, 'La capacidad'));
-    if (!form.edificio.trim()) newErrors.edificio = 'El edificio es obligatorio';
-    assignError(newErrors, 'edificio', validateMaxLen(form.edificio, FieldLimits.building, 'Edificio'));
+    assignError(newErrors, 'edificio', validateTextFree(form.edificio, FieldLimits.building, 'Edificio', false));
     if (!form.piso.trim()) newErrors.piso = 'El piso es obligatorio';
     else if (isNaN(Number(form.piso)) || Number(form.piso) < 0) {
       newErrors.piso = 'Ingresa un número de piso válido';
@@ -281,7 +281,11 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
     if (!isGuid(form.sucursal)) newErrors.sucursal = 'Selecciona una sucursal válida';
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (Object.keys(newErrors).length > 0) {
+      afterValidationErrors(newErrors);
+      return false;
+    }
+    return true;
   };
 
   const goNext = () => {
@@ -427,7 +431,6 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
               />
               <Input
                 label="Edificio"
-                required
                 maxLength={FieldLimits.building}
                 value={form.edificio}
                 onChange={(e) => handleChange('edificio', e.target.value)}

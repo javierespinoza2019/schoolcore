@@ -9,7 +9,7 @@ export interface CorteCaja {
   montoFinal: number;
   diferencia: number;
   estado: 'abierto' | 'cerrado' | 'conciliado';
-  transacciones: number;
+  transacciones?: number;
 }
 
 export interface MovimientoCaja {

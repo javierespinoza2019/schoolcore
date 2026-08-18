@@ -54,11 +54,17 @@ interface GrupoConAlumnos {
 }
 
 function getGruposYAlumnos(
+  teacherId: string,
   nombreProfesor: string,
   classrooms: Salon[],
   studentsList: Student[]
 ): GrupoConAlumnos[] {
-  const salonesDelProfe = classrooms.filter((s) => s.profesorAsignado === nombreProfesor);
+  const salonesDelProfe = classrooms.filter(
+    (s) =>
+      (s.teacherId && teacherId && s.teacherId === teacherId) ||
+      s.profesorAsignado === nombreProfesor ||
+      (teacherId && s.profesorAsignado === teacherId)
+  );
   return salonesDelProfe.map((salon) => {
     const alumnosDelGrupo = studentsList.filter(
       (alumno) =>
@@ -102,7 +108,7 @@ export default function ProfesorDetail() {
 
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({ for: 'profesor-detail' }),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
   });
   const studentsQ = useApiResource({
     queryKey: queryKeys.students.list({ for: 'profesor-detail' }),
@@ -115,7 +121,7 @@ export default function ProfesorDetail() {
 
   const gruposConAlumnos = useMemo(() => {
     if (!profesor) return [];
-    return getGruposYAlumnos(profesor.nombre, classroomsQ.data ?? [], studentsQ.data ?? []);
+    return getGruposYAlumnos(String(profesor.id), profesor.nombre, classroomsQ.data ?? [], studentsQ.data ?? []);
   }, [profesor, classroomsQ.data, studentsQ.data]);
 
   const totalAlumnos = useMemo(
@@ -555,6 +561,7 @@ export default function ProfesorDetail() {
           onSave={handleEditSave}
           profesor={profesor}
           saving={saving}
+          linkedClassroomCount={gruposConAlumnos.length}
         />
 
         <DeleteConfirmModal

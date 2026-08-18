@@ -149,7 +149,7 @@ export default function StudentTable({ students, classrooms = [], onViewStudent,
             />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground-800 truncate">{row.fullName}</p>
+            <p className="text-sm font-medium text-foreground-800 truncate" title={row.fullName}>{row.fullName}</p>
             <p className="text-2xs text-foreground-500">{row.enrollment}</p>
           </div>
         </div>

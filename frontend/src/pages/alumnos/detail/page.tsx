@@ -78,13 +78,18 @@ export default function AlumnoDetail() {
 
   const chargesQuery = useQuery({
     queryKey: [...queryKeys.students.detail(id), 'charges'],
-    queryFn: () => listCharges({ studentId: id, pageSize: 200 }),
+    queryFn: () => listCharges({ studentId: id, pageSize: 100 }),
     enabled: Boolean(id) && isGuid(id),
   });
 
   const documentsQuery = useQuery({
     queryKey: [...queryKeys.students.detail(id), 'documents'],
-    queryFn: () => studentsApi.listStudentDocuments(id),
+    queryFn: () =>
+      studentsApi.listStudentDocuments(id, {
+        excludeDocumentIds: studentQuery.data?.data?.photo
+          ? [studentQuery.data.data.photo]
+          : undefined,
+      }),
     enabled: Boolean(id) && isGuid(id),
   });
 
@@ -96,19 +101,27 @@ export default function AlumnoDetail() {
 
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({ for: 'alumno-detail' }),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
   });
   const classrooms = classroomsQ.data ?? [];
 
   useEffect(() => {
     if (!studentQuery.data?.data) return;
     const base = studentQuery.data.data;
-    const parents = guardiansQuery.data?.data ?? base.parents ?? [];
-    const payments = chargesQuery.data?.data
-      ? studentsApi.chargesToStudentPayments(chargesQuery.data.data)
-      : base.payments ?? [];
-    const documents = documentsQuery.data?.data ?? base.documents ?? [];
-    const timeline = timelineQuery.data?.data ?? base.timeline ?? [];
+    const parents = guardiansQuery.isError
+      ? (studentState?.parents ?? base.parents ?? [])
+      : (guardiansQuery.data?.data ?? base.parents ?? []);
+    const payments = chargesQuery.isError
+      ? (studentState?.payments ?? base.payments ?? [])
+      : chargesQuery.data?.data
+        ? studentsApi.chargesToStudentPayments(chargesQuery.data.data)
+        : base.payments ?? [];
+    const documents = documentsQuery.isError
+      ? (studentState?.documents ?? base.documents ?? [])
+      : (documentsQuery.data?.data ?? base.documents ?? []);
+    const timeline = timelineQuery.isError
+      ? (studentState?.timeline ?? base.timeline ?? [])
+      : (timelineQuery.data?.data ?? base.timeline ?? []);
     const pendingBalance = payments
       .filter((p) => p.status !== 'paid')
       .reduce((sum, p) => sum + p.amount, 0);
@@ -127,12 +140,18 @@ export default function AlumnoDetail() {
       balance: pendingBalance,
       lastPayment: lastPaid || base.lastPayment || '',
     });
+    // studentState omitted from deps on purpose: only hydrate from queries
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     studentQuery.data,
     guardiansQuery.data,
+    guardiansQuery.isError,
     chargesQuery.data,
+    chargesQuery.isError,
     documentsQuery.data,
+    documentsQuery.isError,
     timelineQuery.data,
+    timelineQuery.isError,
   ]);
 
   const invalidate = useCallback(() => {
@@ -143,6 +162,7 @@ export default function AlumnoDetail() {
     void queryClient.invalidateQueries({ queryKey: [...queryKeys.students.detail(id), 'documents'] });
     void queryClient.invalidateQueries({ queryKey: [...queryKeys.students.detail(id), 'timeline'] });
     void queryClient.invalidateQueries({ queryKey: queryKeys.parents.all });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.finance.all });
   }, [queryClient, id]);
 
   if (!isGuid(id)) {
@@ -159,7 +179,10 @@ export default function AlumnoDetail() {
     );
   }
 
-  if (studentQuery.isLoading) {
+  if (
+    studentQuery.isLoading ||
+    (studentQuery.isSuccess && studentQuery.data?.data && !studentState)
+  ) {
     return (
       <MainLayout>
         <div className="max-w-[1440px] mx-auto">
@@ -171,7 +194,11 @@ export default function AlumnoDetail() {
     );
   }
 
-  if (studentQuery.isError || !studentState) {
+  if (
+    studentQuery.isError ||
+    (studentQuery.isSuccess && !studentQuery.data?.data) ||
+    !studentState
+  ) {
     return (
       <MainLayout>
         <div className="max-w-[1440px] mx-auto flex flex-col items-center justify-center py-20">
@@ -201,8 +228,8 @@ export default function AlumnoDetail() {
   );
   const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms);
 
-  const handlePaymentRegistered = (updatedStudent: Student) => {
-    setStudentState(updatedStudent);
+  const handlePaymentRegistered = (_updatedStudent: Student) => {
+    invalidate();
   };
 
   const handleEditSave = async (formData: StudentFormData) => {
@@ -272,8 +299,8 @@ export default function AlumnoDetail() {
     }
   };
 
-  const handleDocumentUploaded = (updatedStudent: Student) => {
-    setStudentState(updatedStudent);
+  const handleDocumentUploaded = (_updatedStudent: Student) => {
+    invalidate();
   };
 
   const handleTutorVinculado = (updatedStudent: Student) => {
@@ -355,6 +382,16 @@ export default function AlumnoDetail() {
     },
   ];
 
+  const subResourceError = (label: string, onRetry: () => void) => (
+    <div className="flex flex-col items-center justify-center py-10 text-red-500 border-2 border-dashed border-red-200 rounded-lg">
+      <i className="ri-error-warning-line text-2xl mb-2" />
+      <p className="text-sm font-medium">No se pudieron cargar {label}</p>
+      <Button variant="outline" size="sm" icon="ri-refresh-line" className="mt-3" onClick={onRetry}>
+        Reintentar
+      </Button>
+    </div>
+  );
+
   const tabs = [
     {
       id: 'expediente',
@@ -366,22 +403,32 @@ export default function AlumnoDetail() {
       id: 'timeline',
       label: 'Timeline',
       icon: 'ri-history-line',
-      count: student.timeline.length,
-      content: <TimelineTab student={student} />,
+      count: timelineQuery.isError ? undefined : student.timeline.length,
+      content: timelineQuery.isError ? (
+        subResourceError('el timeline', () => void timelineQuery.refetch())
+      ) : (
+        <TimelineTab student={student} />
+      ),
     },
     {
       id: 'pagos',
       label: 'Pagos',
       icon: 'ri-money-dollar-circle-line',
-      count: student.payments.length,
-      content: <PagosTab student={student} onRegistrarPago={() => setPagoModalOpen(true)} />,
+      count: chargesQuery.isError ? undefined : student.payments.length,
+      content: chargesQuery.isError ? (
+        subResourceError('los pagos', () => void chargesQuery.refetch())
+      ) : (
+        <PagosTab student={student} onRegistrarPago={() => setPagoModalOpen(true)} />
+      ),
     },
     {
       id: 'documentos',
       label: 'Documentos',
       icon: 'ri-file-list-3-line',
-      count: student.documents.length,
-      content: (
+      count: documentsQuery.isError ? undefined : student.documents.length,
+      content: documentsQuery.isError ? (
+        subResourceError('los documentos', () => void documentsQuery.refetch())
+      ) : (
         <DocumentosTab student={student} onUploadDocumento={() => setDocModalOpen(true)} />
       ),
     },
@@ -389,8 +436,10 @@ export default function AlumnoDetail() {
       id: 'padres',
       label: 'Padres',
       icon: 'ri-user-heart-line',
-      count: student.parents.length,
-      content: (
+      count: guardiansQuery.isError ? undefined : student.parents.length,
+      content: guardiansQuery.isError ? (
+        subResourceError('los tutores', () => void guardiansQuery.refetch())
+      ) : (
         <PadresTab
           student={student}
           onVincularTutor={() => setTutorModalOpen(true)}

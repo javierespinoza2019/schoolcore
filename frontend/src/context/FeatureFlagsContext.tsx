@@ -21,11 +21,12 @@ import {
 } from '@/config/features';
 
 interface FeatureFlagsContextValue {
-  /** Mapa resuelto para la sucursal activa (defaults OFF). */
+  /** Mapa resuelto para la sucursal activa (defaults OFF solo si aún no hay data). */
   flags: FeatureFlagsMap;
   resolvedFrom: FeatureResolvedFromMap;
   rows: FeatureFlagRow[];
   isLoading: boolean;
+  isError: boolean;
   isEnabled: (id: FeatureFlagId) => boolean;
   refresh: () => void;
 }
@@ -42,6 +43,7 @@ export function FeatureFlagsProvider({ children }: { children: ReactNode }) {
     queryFn: () => featureFlagsApi.listFeatureFlags(branchId),
     enabled: isAuthenticated,
     staleTime: 60_000,
+    placeholderData: (prev) => prev,
   });
 
   const flags = query.data?.flags ?? DEFAULT_FEATURE_FLAGS;
@@ -49,8 +51,12 @@ export function FeatureFlagsProvider({ children }: { children: ReactNode }) {
   const rows = query.data?.rows ?? [];
 
   const isEnabled = useCallback(
-    (id: FeatureFlagId) => Boolean(flags[id]),
-    [flags]
+    (id: FeatureFlagId) => {
+      // Si falló la carga y no hay data previa, no asumir OFF como “diseño”.
+      if (query.isError && !query.data) return false;
+      return Boolean(flags[id]);
+    },
+    [flags, query.isError, query.data]
   );
 
   const refresh = useCallback(() => {
@@ -63,10 +69,11 @@ export function FeatureFlagsProvider({ children }: { children: ReactNode }) {
       resolvedFrom,
       rows,
       isLoading: query.isLoading,
+      isError: query.isError,
       isEnabled,
       refresh,
     }),
-    [flags, resolvedFrom, rows, query.isLoading, isEnabled, refresh]
+    [flags, resolvedFrom, rows, query.isLoading, query.isError, isEnabled, refresh]
   );
 
   return (

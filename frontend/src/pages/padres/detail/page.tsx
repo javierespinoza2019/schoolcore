@@ -119,7 +119,7 @@ export default function PadreDetail() {
   const handleEditSave = async (formData: ParentFormData) => {
     setSaving(true);
     try {
-      const res = await parentsApi.updateParent(parent.id, {
+      const payload = {
         firstName: formData.firstName.trim(),
         lastName: formData.lastName.trim(),
         email: formData.email.trim(),
@@ -127,10 +127,24 @@ export default function PadreDetail() {
         occupation: formData.occupation.trim(),
         address: formData.address.trim(),
         status: formData.status as Parent['status'],
-      });
+        photo: formData.photoRemoved ? '' : parent.photo || '',
+      };
+      const res = await parentsApi.updateParent(parent.id, payload);
       if (!res.success) {
         showToast(res.message || 'No se pudo actualizar', 'error');
         return;
+      }
+
+      if (formData.photoFile && isGuid(parent.id)) {
+        const up = await parentsApi.uploadParentPhoto(parent.id, formData.photoFile);
+        if (!up.success || !up.data) {
+          showToast(up.message || 'Tutor actualizado, pero la foto no se pudo subir', 'error');
+        } else {
+          const withPhoto = await parentsApi.updateParent(parent.id, { ...payload, photo: up.data });
+          if (!withPhoto.success) {
+            showToast(withPhoto.message || 'La foto se subió pero no se vinculó al tutor', 'error');
+          }
+        }
       }
 
       const currentIds = new Set(linkedStudents.map((s) => s.id));
@@ -175,12 +189,16 @@ export default function PadreDetail() {
     }
   };
 
-  const handleVincularAlumno = async (alumnoId: string) => {
+  const handleVincularAlumno = async (
+    alumnoId: string,
+    relationship: string,
+    isPrimary: boolean
+  ) => {
     if (!isGuid(alumnoId)) {
       showToast('Alumno inválido', 'error');
       return;
     }
-    const res = await parentsApi.linkStudent(parent.id, alumnoId);
+    const res = await parentsApi.linkStudent(parent.id, alumnoId, relationship, isPrimary);
     if (!res.success) {
       showToast(res.message || 'No se pudo vincular el alumno', 'error');
       return;
@@ -237,12 +255,21 @@ export default function PadreDetail() {
           <div className="lg:col-span-1">
             <Card padding="lg">
               <div className="flex flex-col items-center text-center mb-5">
-                <div className="w-20 h-20 rounded-full bg-primary-100 flex items-center justify-center mb-3">
-                  <span className="text-xl font-bold text-primary-600">
-                    {parent.firstName[0]}
-                    {parent.lastName[0]}
-                  </span>
-                </div>
+                {parent.photo ? (
+                  <TeacherAvatar
+                    src={parent.photo}
+                    alt={parent.fullName}
+                    filenameHint="guardian-photo"
+                    className="w-20 h-20 rounded-full object-cover object-top mb-3"
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-full bg-primary-100 flex items-center justify-center mb-3">
+                    <span className="text-xl font-bold text-primary-600">
+                      {parent.firstName[0]}
+                      {parent.lastName[0]}
+                    </span>
+                  </div>
+                )}
                 <h1 className="text-base font-bold text-foreground-900">{parent.fullName}</h1>
                 <Badge variant={parent.status === 'active' ? 'success' : 'default'} size="sm" className="mt-1">
                   {parent.status === 'active' ? 'Activo' : 'Inactivo'}
@@ -289,7 +316,9 @@ export default function PadreDetail() {
                   <i className="ri-user-star-line text-sm text-foreground-400 mt-0.5" />
                   <div>
                     <p className="text-3xs text-foreground-500 uppercase tracking-wider">Hijos vinculados</p>
-                    <p className="text-sm text-foreground-800">{parent.childrenCount ?? linkedStudents.length}</p>
+                    <p className="text-sm text-foreground-800">
+                      {studentsQ.isSuccess ? linkedStudents.length : (parent.childrenCount ?? '—')}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -323,6 +352,18 @@ export default function PadreDetail() {
 
               {studentsQ.isPending ? (
                 <p className="text-sm text-foreground-500 py-8 text-center">Cargando alumnos…</p>
+              ) : studentsQ.isError ? (
+                <div className="flex flex-col items-center justify-center py-10 text-red-500 border-2 border-dashed border-red-200 rounded-lg">
+                  <i className="ri-error-warning-line text-2xl mb-2" />
+                  <p className="text-sm font-medium">No se pudieron cargar los alumnos vinculados</p>
+                  <p className="text-xs text-foreground-500 mt-1 mb-3 text-center max-w-sm">
+                    {(studentsQ.error as Error)?.message ||
+                      'Verifica que el SP sp_StudentGuardian_ListByGuardian esté publicado en la BD.'}
+                  </p>
+                  <Button variant="outline" size="sm" icon="ri-refresh-line" onClick={() => void studentsQ.refetch()}>
+                    Reintentar
+                  </Button>
+                </div>
               ) : linkedStudents.length > 0 ? (
                 <div className="space-y-3">
                   {linkedStudents.map((student) => {
@@ -345,8 +386,18 @@ export default function PadreDetail() {
                             />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-foreground-800">{student.fullName}</p>
+                            <p className="text-sm font-medium text-foreground-800">
+                              {student.fullName}
+                              {student.isPrimary ? (
+                                <Badge variant="primary" size="sm" className="ml-2">
+                                  Primario
+                                </Badge>
+                              ) : null}
+                            </p>
                             <p className="text-2xs text-foreground-500">
+                              {student.relationship
+                                ? `${student.relationship} · `
+                                : ''}
                               {student.level} {student.grade}° {student.group} · {student.branchName || '—'}
                             </p>
                           </div>
@@ -397,7 +448,9 @@ export default function PadreDetail() {
         <VincularAlumnoModal
           open={vincularOpen}
           onClose={() => setVincularOpen(false)}
-          onVincular={(alumnoId) => void handleVincularAlumno(alumnoId)}
+          onVincular={(alumnoId, relationship, isPrimary) =>
+            void handleVincularAlumno(alumnoId, relationship, isPrimary)
+          }
           parentName={parent.fullName}
           alreadyLinkedIds={linkedStudents.map((s) => s.id)}
         />

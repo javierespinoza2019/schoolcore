@@ -32,7 +32,8 @@ export default function AlumnosAdeudoPanel({ pagos, onRegistrarPago }: AlumnosAd
       const total = conceptos.reduce((s, c) => s + (c.monto - c.montoPagado), 0);
       const fechas = conceptos.map((c) => new Date(c.fechaVencimiento)).sort((a, b) => a.getTime() - b.getTime());
       const mesMasAntiguo = fechas[0].toLocaleDateString('es-MX', { month: 'short', year: 'numeric' });
-      const hoy = new Date('2026-08-04');
+      const hoy = new Date();
+      hoy.setHours(0, 0, 0, 0);
       const mesesAtraso = fechas[0]
         ? Math.max(1, Math.floor((hoy.getTime() - fechas[0].getTime()) / (30 * 24 * 60 * 60 * 1000)))
         : 1;

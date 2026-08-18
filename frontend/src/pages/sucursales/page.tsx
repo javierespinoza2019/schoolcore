@@ -12,10 +12,12 @@ import SucursalFormModal from '@/pages/sucursales/components/SucursalFormModal';
 import type { SucursalFormData } from '@/pages/sucursales/components/SucursalFormModal';
 import DeleteConfirmModal from '@/components/base/DeleteConfirmModal';
 import { useToast } from '@/components/base/Toast';
+import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import { Sucursal } from '@/mocks/sucursales';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as branchesApi from '@/api/branchesApi';
+import { isGuid } from '@/api/helpers';
 
 function getEstadoBadge(estado: string) {
   switch (estado) {
@@ -175,14 +177,31 @@ export default function Sucursales() {
       superficie: formData.superficie.trim(),
       estadoOperativo: formData.estadoOperativo as Sucursal['estadoOperativo'],
       timeZoneId: formData.timeZoneId,
+      fotoUrl: formData.photoRemoved ? '' : editingSucursal?.fotoUrl || '',
     };
     try {
       const res = editingSucursal
         ? await branchesApi.updateBranch(editingSucursal.id, payload)
         : await branchesApi.createBranch(payload);
-      if (!res.success) {
+      if (!res.success || !res.data) {
         showToast(res.message || 'No se pudo guardar la sucursal', 'error');
         return;
+      }
+      if (formData.photoFile && isGuid(String(res.data.id))) {
+        const up = await branchesApi.uploadBranchPhoto(String(res.data.id), formData.photoFile);
+        if (!up.success || !up.data) {
+          showToast(up.message || 'Sucursal guardada, pero la imagen no se pudo subir', 'error');
+          setFormOpen(false);
+          setEditingSucursal(null);
+          invalidateBranches();
+          return;
+        }
+        const withPhoto = await branchesApi.updateBranch(res.data.id, { ...payload, fotoUrl: up.data });
+        if (!withPhoto.success) {
+          showToast(withPhoto.message || 'La imagen se subió pero no se vinculó a la sucursal', 'error');
+          invalidateBranches();
+          return;
+        }
       }
       showToast(
         editingSucursal
@@ -275,15 +294,23 @@ export default function Sucursales() {
               return (
                 <Card key={suc.id} padding="none" hover className="overflow-hidden">
                   <div className="relative h-44 overflow-hidden">
-                    <img
-                      src={suc.fotoUrl}
-                      alt={suc.nombre}
-                      className="w-full h-full object-cover"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                    {suc.fotoUrl ? (
+                      <TeacherAvatar
+                        src={suc.fotoUrl}
+                        alt={suc.nombre}
+                        filenameHint="branch-photo"
+                        emptyIcon="ri-building-4-line text-4xl"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-secondary-200 text-foreground-400">
+                        <i className="ri-building-4-line text-4xl" />
+                      </div>
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
                     <div className="absolute bottom-3 left-4 right-4">
                       <div className="flex items-center gap-2">
-                        <h3 className="text-base font-bold text-white">{suc.nombre}</h3>
+                        <h3 className="text-base font-bold text-white drop-shadow-sm">{suc.nombre}</h3>
                         {getEstadoBadge(suc.estadoOperativo)}
                       </div>
                     </div>

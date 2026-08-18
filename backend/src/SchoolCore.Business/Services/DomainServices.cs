@@ -6,6 +6,7 @@ using SchoolCore.Common.Exceptions;
 using SchoolCore.Common.Interaction;
 using SchoolCore.Common.Options;
 using SchoolCore.Common.Security;
+using SchoolCore.Common.Validation;
 using SchoolCore.DataAccess.Repositories;
 using SchoolCore.Models.Dtos.Academic;
 using SchoolCore.Models.Dtos.Common;
@@ -100,7 +101,7 @@ public sealed class PeopleService : IPeopleService
     public async Task<PagedResult<StudentDto>> ListStudentsAsync(Guid? branchId, string? status, PagedRequest paging, string? search, CancellationToken ct = default)
     {
         var (tenantId, _) = Ctx();
-        paging.Normalize(200);
+        paging.Normalize(100);
         return await _repo.ListStudentsAsync(tenantId, branchId, status, paging.Page, paging.PageSize, search, ct);
     }
 
@@ -282,32 +283,35 @@ public sealed class PeopleService : IPeopleService
             throw AppException.BadRequest(msg, errs);
         }
 
-        if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-        {
-            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredName);
-            throw AppException.BadRequest(msg, errs);
-        }
-
         if (!request.SchoolCycleId.HasValue || request.SchoolCycleId == Guid.Empty)
         {
             var (msg, errs) = InteractionMessages.Error(InteractionMessages.CtxNoCycle);
             throw AppException.BadRequest(msg, errs);
         }
+
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.PersonName(request.FirstName, "El nombre"),
+            FieldValidator.PersonName(request.LastName, "Los apellidos"),
+            FieldValidator.Email(request.Email),
+            FieldValidator.Phone(request.Phone),
+            FieldValidator.TextFree(request.Address, FieldStandards.AddressMax, "Dirección"),
+            FieldValidator.TextFree(request.Allergies, FieldStandards.AllergiesMax, "Alergias"),
+            FieldValidator.TextFree(request.MedicalNotes, FieldStandards.MedicalNotesMax, "Notas médicas"),
+            FieldValidator.TextFree(request.BloodType, FieldStandards.BloodTypeMax, "Tipo de sangre"),
+            FieldValidator.TextFree(request.Grade, FieldStandards.GradeMax, "Grado"),
+            FieldValidator.Code(request.GroupCode, FieldStandards.GroupMax, "Grupo"),
+            FieldValidator.TextFree(request.LevelName, FieldStandards.LevelNameMax, "Nivel"));
     }
 
     private static void ValidateGuardian(GuardianUpsertRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-        {
-            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredName);
-            throw AppException.BadRequest(msg, errs);
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Email))
-        {
-            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredEmail);
-            throw AppException.BadRequest(msg, errs);
-        }
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.PersonName(request.FirstName, "El nombre"),
+            FieldValidator.PersonName(request.LastName, "Los apellidos"),
+            FieldValidator.Email(request.Email),
+            FieldValidator.Phone(request.Phone),
+            FieldValidator.TextFree(request.Occupation, FieldStandards.OccupationMax, "Ocupación"),
+            FieldValidator.TextFree(request.Address, FieldStandards.AddressMax, "Dirección"));
     }
 }
 
@@ -330,6 +334,7 @@ public interface IAcademicService
     Task<EnrollmentDto> CreateEnrollmentAsync(CreateEnrollmentRequest request, CancellationToken ct = default);
     Task<EnrollmentDto> SaveEnrollmentWizardAsync(Guid id, SaveEnrollmentWizardRequest request, CancellationToken ct = default);
     Task<EnrollmentDto> CompleteEnrollmentAsync(Guid id, CompleteEnrollmentRequest request, CancellationToken ct = default);
+    Task DeleteEnrollmentAsync(Guid id, CancellationToken ct = default);
 }
 
 public sealed class AcademicService : IAcademicService
@@ -340,7 +345,7 @@ public sealed class AcademicService : IAcademicService
     private (Guid TenantId, Guid UserId) Ctx() => TenantGuard.Require(_tenant);
 
     public async Task<PagedResult<TeacherDto>> ListTeachersAsync(Guid? branchId, PagedRequest paging, string? search, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(200); return await _repo.ListTeachersAsync(t, branchId, paging.Page, paging.PageSize, search, ct); }
+    { var (t, _) = Ctx(); paging.Normalize(100); return await _repo.ListTeachersAsync(t, branchId, paging.Page, paging.PageSize, search, ct); }
     public async Task<TeacherDto> GetTeacherAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetTeacherAsync(t, id, ct) ?? throw AppException.NotFound("Teacher not found."); }
     public Task<TeacherDto> CreateTeacherAsync(TeacherUpsertRequest request, CancellationToken ct = default)
@@ -351,7 +356,7 @@ public sealed class AcademicService : IAcademicService
     { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.SoftDeleteTeacherAsync(t, id, u, ct)); }
 
     public async Task<PagedResult<ClassroomDto>> ListClassroomsAsync(Guid? branchId, PagedRequest paging, string? search, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(200); return await _repo.ListClassroomsAsync(t, branchId, paging.Page, paging.PageSize, search, ct); }
+    { var (t, _) = Ctx(); paging.Normalize(100); return await _repo.ListClassroomsAsync(t, branchId, paging.Page, paging.PageSize, search, ct); }
     public async Task<ClassroomDto> GetClassroomAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetClassroomAsync(t, id, ct) ?? throw AppException.NotFound("Classroom not found."); }
     public Task<ClassroomDto> CreateClassroomAsync(ClassroomUpsertRequest request, CancellationToken ct = default)
@@ -380,6 +385,9 @@ public sealed class AcademicService : IAcademicService
         return SqlExec.RunAsync(() => _repo.CompleteEnrollmentAsync(t, id, request.StudentId, u, ct));
     }
 
+    public Task DeleteEnrollmentAsync(Guid id, CancellationToken ct = default)
+    { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.SoftDeleteEnrollmentAsync(t, id, u, ct)); }
+
     private static void ValidateEnrollmentCreate(CreateEnrollmentRequest request)
     {
         if (request.BranchId == Guid.Empty)
@@ -403,17 +411,13 @@ public sealed class AcademicService : IAcademicService
             throw AppException.BadRequest(msg, errs);
         }
 
-        if (string.IsNullOrWhiteSpace(request.FirstName) || string.IsNullOrWhiteSpace(request.LastName))
-        {
-            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredName);
-            throw AppException.BadRequest(msg, errs);
-        }
-
-        if (string.IsNullOrWhiteSpace(request.Email))
-        {
-            var (msg, errs) = InteractionMessages.Error(InteractionMessages.ValRequiredEmail);
-            throw AppException.BadRequest(msg, errs);
-        }
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.PersonName(request.FirstName, "El nombre"),
+            FieldValidator.PersonName(request.LastName, "Los apellidos"),
+            FieldValidator.Email(request.Email),
+            FieldValidator.Phone(request.Phone),
+            FieldValidator.TextFree(request.Specialty, FieldStandards.SpecialtyMax, "Especialidad"),
+            FieldValidator.TextFree(request.ScheduleNotes, FieldStandards.ScheduleNotesMax, "Horario"));
     }
 
     private static void ValidateClassroom(ClassroomUpsertRequest request)
@@ -424,11 +428,13 @@ public sealed class AcademicService : IAcademicService
             throw AppException.BadRequest(msg, errs);
         }
 
-        if (string.IsNullOrWhiteSpace(request.Name))
-        {
-            var (msg, errs) = InteractionMessages.Error("NAME_REQUIRED");
-            throw AppException.BadRequest(msg, errs);
-        }
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.Name, FieldStandards.ClassroomNameMax, "El nombre", required: true, minLen: 1),
+            FieldValidator.TextFree(request.Building, FieldStandards.BuildingMax, "Edificio"),
+            FieldValidator.TextFree(request.Grade, FieldStandards.GradeMax, "Grado"),
+            FieldValidator.Code(request.GroupCode, FieldStandards.GroupMax, "Grupo"),
+            FieldValidator.TextFree(request.ScheduleNotes, FieldStandards.ScheduleNotesMax, "Horario"),
+            FieldValidator.TextFree(request.LevelName, FieldStandards.LevelNameMax, "Nivel"));
     }
 }
 
@@ -487,23 +493,35 @@ public sealed class FinanceService : IFinanceService
             var (msg, errs) = InteractionMessages.Error("CASH_SESSION_REQUIRED");
             throw AppException.BadRequest(msg, errs);
         }
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.Notes, FieldStandards.PaymentNotesMax, "Notas"),
+            FieldValidator.TextFree(request.Reference, FieldStandards.ReferenceMax, "Referencia"));
         return SqlExec.RunAsync(() => _repo.CreatePaymentAsync(t, Guid.NewGuid(), request, u, ct));
     }
 
     public Task<PaymentDto> ReversePaymentAsync(Guid id, ReversePaymentRequest request, CancellationToken ct = default)
     {
         var (t, u) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.Reason) || request.Reason.Trim().Length < 5)
-        {
-            var (msg, errs) = InteractionMessages.Error("PAYMENT_REVERSE_REASON");
-            throw AppException.BadRequest(msg, errs);
-        }
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(
+                request.Reason,
+                FieldStandards.ReverseReasonMax,
+                "Motivo",
+                required: true,
+                minLen: FieldStandards.ReverseReasonMin));
         return SqlExec.RunAsync(() => _repo.ReversePaymentAsync(t, id, request, u, ct));
     }
     public async Task<PagedResult<ExpenseDto>> ListExpensesAsync(Guid? branchId, PagedRequest paging, CancellationToken ct = default)
     { var (t, _) = Ctx(); paging.Normalize(); return await _repo.ListExpensesAsync(t, branchId, paging.Page, paging.PageSize, ct); }
     public Task<ExpenseDto> CreateExpenseAsync(CreateExpenseRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.CreateExpenseAsync(t, Guid.NewGuid(), request, u, ct)); }
+    {
+        var (t, u) = Ctx();
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.Concept, FieldStandards.ExpenseConceptMax, "Concepto", required: true, minLen: 1),
+            FieldValidator.PositiveAmount(request.Amount),
+            FieldValidator.TextFree(request.Reference, FieldStandards.ReferenceMax, "Referencia"));
+        return SqlExec.RunAsync(() => _repo.CreateExpenseAsync(t, Guid.NewGuid(), request, u, ct));
+    }
     public Task DeleteExpenseAsync(Guid id, CancellationToken ct = default)
     { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.SoftDeleteExpenseAsync(t, id, u, ct)); }
     public Task<CashSessionDto> OpenCashSessionAsync(OpenCashSessionRequest request, CancellationToken ct = default)

@@ -11,6 +11,7 @@ import { useToast } from '@/components/base/Toast';
 import * as settingsApi from '@/api/settingsApi';
 import { isGuid } from '@/api/helpers';
 import { queryKeys } from '@/api/queryKeys';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface NivelEducativo { id: string; nombre: string; grados: number; activo: boolean; }
 interface RolPermiso { id: string; nombre: string; usuarios: number; descripcion: string; }
@@ -83,7 +84,10 @@ export default function CatalogosTab({
     if (!nivelForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del nivel';
     if (!nivelForm.grados.trim() || parseInt(nivelForm.grados) <= 0) errs.grados = 'Ingresa un número de grados válido';
     setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      afterValidationErrors(errs);
+      return;
+    }
     setSaving(true);
     try {
       if (editingNivel) {

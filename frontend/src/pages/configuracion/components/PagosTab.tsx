@@ -12,6 +12,7 @@ import type { ConceptoPago, ConceptoPagoNivel } from '@/mocks/configuracion';
 import * as settingsApi from '@/api/settingsApi';
 import { isGuid } from '@/api/helpers';
 import { queryKeys } from '@/api/queryKeys';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface MetodoPago { id: string; nombre: string; activo: boolean; info: string; }
 
@@ -114,7 +115,10 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
     if (!metodoForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del método';
     if (!metodoForm.info.trim()) errs.info = 'Ingresa la información del método';
     setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      afterValidationErrors(errs);
+      return;
+    }
     setSaving(true);
     try {
       if (editingMetodo) {
@@ -170,7 +174,10 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
       errs.montoBase = 'Ingresa un monto válido';
     }
     setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      afterValidationErrors(errs);
+      return;
+    }
 
     setSaving(true);
     try {

@@ -34,9 +34,14 @@ export default function EmailTemplatesTab() {
   const handleSave = async () => {
     if (!edit) return;
     setSaving(true);
-    const res = await settingsApi.updateEmailTemplate(edit.id, { subject });
+    const res = await settingsApi.updateEmailTemplate(edit.id, {
+      key: edit.key,
+      subject,
+      htmlBody: edit.htmlBody ?? '',
+      culture: edit.culture,
+    });
     setSaving(false);
-    if (res.success || templatesQuery.isFallback) {
+    if (res.success) {
       showToast('Plantilla actualizada', 'success');
       setEdit(null);
       void queryClient.invalidateQueries({ queryKey: queryKeys.settings.emailTemplates() });

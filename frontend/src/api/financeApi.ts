@@ -121,8 +121,8 @@ export async function getFinanceSummary(params: {
   try {
     const qIe = buildQuery({ branchId: params.branchId, from, to });
     const qMor = buildQuery({ branchId: params.branchId });
-    const qPay = buildQuery({ branchId: params.branchId, page: 1, pageSize: 200 });
-    const qCh = buildQuery({ branchId: params.branchId, page: 1, pageSize: 200 });
+    const qPay = buildQuery({ branchId: params.branchId, page: 1, pageSize: 100 });
+    const qCh = buildQuery({ branchId: params.branchId, page: 1, pageSize: 100 });
 
     const [ieRes, morRes, payRes, chRes] = await Promise.all([
       apiClient<Record<string, unknown>[]>(`/reports/income-expense${qIe}`),
@@ -161,7 +161,10 @@ export async function getFinanceSummary(params: {
 
     const payments = payRes.success ? unwrapList(payRes.data) : [];
     const pagosHoyList = payments.filter((p) => {
-      const paid = String((p as Record<string, unknown>).paidAt ?? '').slice(0, 10);
+      const row = p as Record<string, unknown>;
+      const st = String(row.status ?? '').toLowerCase();
+      if (st === 'voided' || st === 'anulado' || st === 'reversed') return false;
+      const paid = String(row.paidAt ?? '').slice(0, 10);
       return paid === today;
     });
     const montoHoy = pagosHoyList.reduce(
@@ -194,7 +197,8 @@ export async function getFinanceSummary(params: {
       source: 'api',
     };
   } catch {
-    return { data: EMPTY_SUMMARY, source: 'api', message: 'Resumen financiero sin datos' };
+    // No devolver ceros como éxito: useApiResource debe marcar error.
+    throw new Error('No se pudo cargar el resumen financiero');
   }
 }
 
@@ -305,8 +309,8 @@ export async function getAccountStatement(
     return { data: null, source: 'api', message: 'Alumno inválido' };
   }
 
-  const qCharges = buildQuery({ studentId, page: 1, pageSize: 200 });
-  const qPayments = buildQuery({ studentId, page: 1, pageSize: 200 });
+  const qCharges = buildQuery({ studentId, page: 1, pageSize: 100 });
+  const qPayments = buildQuery({ studentId, page: 1, pageSize: 100 });
 
   try {
     const [chargesRes, paymentsRes] = await Promise.all([
@@ -434,6 +438,54 @@ export async function listCharges(params: {
   );
   const items = unwrapList(result.data).map((x) => normalizeCharge(x as Record<string, unknown>));
   return { data: items, source: result.source, message: result.message };
+}
+
+/** Cargos pendientes/vencidos → forma UI Cobranza (PagoConcepto). */
+export function chargesToPagoConceptos(charges: ChargeSummary[]): PagoConcepto[] {
+  return charges
+    .filter((c) => {
+      const st = c.status.toLowerCase();
+      return st === 'pending' || st === 'pendiente' || st === 'overdue' || st === 'vencido';
+    })
+    .map((c) => {
+      const st = c.status.toLowerCase();
+      const estado: PagoConcepto['estado'] =
+        st === 'overdue' || st === 'vencido' ? 'vencido' : 'pendiente';
+      const tipoRaw = (c.conceptType || 'otro').toLowerCase();
+      const tipo = (
+        [
+          'colegiatura',
+          'inscripcion',
+          'reinscripcion',
+          'uniforme',
+          'libros',
+          'utiles',
+          'comedor',
+          'transporte',
+          'taller',
+          'otro',
+        ] as const
+      ).includes(tipoRaw as PagoConcepto['tipo'])
+        ? (tipoRaw as PagoConcepto['tipo'])
+        : 'otro';
+      return {
+        id: c.id,
+        alumnoId: c.studentId,
+        alumnoNombre: c.studentName || 'Alumno',
+        concepto: c.conceptName || 'Cargo',
+        tipo,
+        monto: c.grossAmount || c.netAmount,
+        fechaVencimiento: c.dueDate,
+        estado,
+        montoPagado: 0,
+      };
+    });
+}
+
+/** Cargos cobrables en modal (pending + overdue). */
+export function isOpenChargeStatus(status: string): boolean {
+  const st = status.toLowerCase();
+  return st === 'pending' || st === 'pendiente' || st === 'overdue' || st === 'vencido';
 }
 
 export interface CreateChargePayload {

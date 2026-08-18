@@ -16,10 +16,12 @@ BEGIN
       AND (@BranchId IS NULL OR BranchId=@BranchId) AND (@StudentId IS NULL OR StudentId=@StudentId);
     SELECT p.Id, p.TenantId, p.BranchId, p.StudentId, p.ChargeId, p.CashSessionId, p.PaymentMethodId, p.Amount, p.Folio, p.PaidAt, p.Reference, p.Notes, p.CreatedAt,
            p.Status, p.VoidReason, p.VoidedAt, p.VoidedBy, p.ReverseCashSessionId, p.ReverseMovementId,
-           s.FirstName + N' ' + s.LastName AS StudentName, pm.Name AS PaymentMethodName
+           s.FirstName + N' ' + s.LastName AS StudentName, pm.Name AS PaymentMethodName,
+           c.ConceptName
     FROM dbo.Payment p
     INNER JOIN dbo.Student s ON s.Id=p.StudentId
     LEFT JOIN dbo.PaymentMethod pm ON pm.Id=p.PaymentMethodId
+    LEFT JOIN dbo.Charge c ON c.Id=p.ChargeId AND c.TenantId=p.TenantId
     WHERE p.TenantId=@TenantId AND p.IsDeleted=0
       AND (@BranchId IS NULL OR p.BranchId=@BranchId) AND (@StudentId IS NULL OR p.StudentId=@StudentId)
     ORDER BY p.PaidAt DESC OFFSET (@Page-1)*@PageSize ROWS FETCH NEXT @PageSize ROWS ONLY;

@@ -90,9 +90,20 @@ export default function Finanzas() {
     errorToast: 'Error al cargar pagos',
   });
 
+  const chargesQ = useApiResource({
+    queryKey: queryKeys.finance.charges({ branchId, for: 'cobranza' }),
+    queryFn: () => financeApi.listCharges({ branchId, pageSize: 100 }),
+    errorToast: 'Error al cargar cargos',
+  });
+
   useEffect(() => {
     if (paymentsQ.data) setPagos(paymentsQ.data);
   }, [paymentsQ.data]);
+
+  const cargosAdeudo = useMemo(
+    () => financeApi.chargesToPagoConceptos(chargesQ.data ?? []),
+    [chargesQ.data]
+  );
 
   const resumen = summaryQ.data ?? EMPTY_SUMMARY;
   const ingresosEgresos = revenueQ.data ?? [];
@@ -128,6 +139,7 @@ export default function Finanzas() {
       setPagos((prev) => [pago, ...prev]);
       void queryClient.invalidateQueries({ queryKey: queryKeys.finance.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.cash.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reports.all });
     },
     [queryClient]
   );
@@ -142,6 +154,7 @@ export default function Finanzas() {
       setPagos((prev) => prev.map((p) => (p.id === pago.id ? { ...p, ...pago } : p)));
       void queryClient.invalidateQueries({ queryKey: queryKeys.finance.all });
       void queryClient.invalidateQueries({ queryKey: queryKeys.cash.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.reports.all });
     },
     [queryClient]
   );
@@ -593,7 +606,7 @@ export default function Finanzas() {
         {activeTab === 'cobranza' && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
             <div className="lg:col-span-2">
-              <AlumnosAdeudoPanel pagos={pagos} onRegistrarPago={handleAbrirPagoPara} />
+              <AlumnosAdeudoPanel pagos={cargosAdeudo} onRegistrarPago={handleAbrirPagoPara} />
             </div>
             <div className="lg:col-span-1">
               <Card padding="md">

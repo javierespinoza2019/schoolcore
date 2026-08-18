@@ -79,6 +79,7 @@ export default function Alumnos() {
 
   const [data, setData] = useState<Student[]>([]);
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [level, setLevel] = useState('');
   const [status, setStatus] = useState('');
   const [branch, setBranch] = useState('');
@@ -91,14 +92,24 @@ export default function Alumnos() {
   const [bulkStudentsToDelete, setBulkStudentsToDelete] = useState<Student[]>([]);
   const [saving, setSaving] = useState(false);
 
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
   const studentsQuery = useApiResource({
-    queryKey: queryKeys.students.list({}),
-    queryFn: () => studentsApi.listStudents({ pageSize: 200 }),
+    queryKey: queryKeys.students.list({ search: searchDebounced, status, pageSize: 100 }),
+    queryFn: () =>
+      studentsApi.listStudents({
+        pageSize: 100,
+        search: searchDebounced || undefined,
+        status: status || undefined,
+      }),
     errorToast: 'Error al cargar alumnos',
   });
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({ for: 'alumnos' }),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
   });
   const classrooms = classroomsQ.data ?? [];
 
@@ -111,7 +122,7 @@ export default function Alumnos() {
   };
 
   const summaryStats = useMemo(() => ({
-    total: data.length,
+    total: studentsQuery.totalCount ?? data.length,
     active: data.filter((s) => s.status === 'active').length,
     pending: data.filter((s) => s.status === 'pending').length,
     suspended: data.filter((s) => s.status === 'suspended').length,
@@ -119,17 +130,15 @@ export default function Alumnos() {
     inactive: data.filter((s) => s.status === 'inactive').length,
     withBalance: data.filter((s) => s.balance > 0).length,
     totalBalance: data.reduce((sum, s) => sum + s.balance, 0),
-  }), [data]);
+  }), [data, studentsQuery.totalCount]);
 
   const filtered = useMemo(() => {
     return data.filter((s) => {
-      if (search && !s.fullName.toLowerCase().includes(search.toLowerCase()) && !s.enrollment.toLowerCase().includes(search.toLowerCase()) && !s.email.toLowerCase().includes(search.toLowerCase())) return false;
       if (level && s.level !== level) return false;
-      if (status && s.status !== status) return false;
       if (branch && s.branchName !== branch) return false;
       return true;
     });
-  }, [data, search, level, status, branch]);
+  }, [data, level, branch]);
 
   const hasActiveFilters = search || level || status || branch;
 
@@ -271,6 +280,7 @@ export default function Alumnos() {
         'success'
       );
       invalidateStudents();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.parents.all });
       setFormOpen(false);
       setEditingStudent(null);
     } catch {
@@ -357,6 +367,19 @@ export default function Alumnos() {
         {studentsQuery.isLoading ? (
           <Card padding="md" className="mb-4">
             <SkeletonTable rows={8} />
+          </Card>
+        ) : studentsQuery.isError ? (
+          <Card padding="md" className="mb-4">
+            <EmptyState
+              icon="ri-error-warning-line"
+              title="No se pudieron cargar los alumnos"
+              description={(studentsQuery.error as Error)?.message || 'Revisa la conexión o vuelve a intentar.'}
+              action={
+                <Button variant="outline" size="sm" icon="ri-refresh-line" onClick={() => void studentsQuery.refetch()}>
+                  Reintentar
+                </Button>
+              }
+            />
           </Card>
         ) : !studentsQuery.isLoading && data.length === 0 ? (
           <Card padding="md" className="mb-4">

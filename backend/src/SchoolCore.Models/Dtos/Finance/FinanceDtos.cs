@@ -42,6 +42,7 @@ public sealed class PaymentDto
     public Guid StudentId { get; set; }
     public string? StudentName { get; set; }
     public Guid ChargeId { get; set; }
+    public string? ConceptName { get; set; }
     public Guid? CashSessionId { get; set; }
     public Guid? PaymentMethodId { get; set; }
     public string? PaymentMethodName { get; set; }
@@ -155,9 +156,12 @@ public sealed class CashMovementDto
     public string? PaymentMethodName { get; set; }
     public string? Reference { get; set; }
     public Guid? StudentId { get; set; }
+    public string? StudentName { get; set; }
     public Guid? PaymentId { get; set; }
     public Guid? ExpenseId { get; set; }
     public DateTime OccurredAt { get; set; }
+    public Guid? CreatedBy { get; set; }
+    public string? CreatedByName { get; set; }
 }
 
 public sealed class CashAuditDto

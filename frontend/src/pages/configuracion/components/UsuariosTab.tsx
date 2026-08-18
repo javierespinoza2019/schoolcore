@@ -14,7 +14,8 @@ import { queryKeys } from '@/api/queryKeys';
 import * as settingsApi from '@/api/settingsApi';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSchoolContext } from '@/context/SchoolContext';
-import { FieldLimits, validateEmail, validatePassword, validatePhone } from '@/lib/validation/fields';
+import { FieldLimits, validateEmail, validatePassword } from '@/lib/validation/fields';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 /** Roles que pueden iniciar sesión en el portal staff (MVP). */
 const MVP_LOGIN_ROLE_CODES = new Set([
@@ -25,6 +26,11 @@ const MVP_LOGIN_ROLE_CODES = new Set([
   'Accountant',
   'Receptionist',
 ]);
+
+/** Select value = Role.Code (SP SetRoles hace JOIN por Code, no por Id). */
+function roleSelectValue(r: { id: string; code?: string; nombre: string }): string {
+  return (r.code && r.code.trim()) || r.id;
+}
 
 function getInitials(nombre: string): string {
   const parts = (nombre || '').split(/\s+/).filter(Boolean);
@@ -69,7 +75,7 @@ export default function UsuariosTab() {
 
   useEffect(() => {
     if (!rolesQ.data?.length) return;
-    const loginRoles = rolesQ.data.filter((r) => MVP_LOGIN_ROLE_CODES.has(r.id));
+    const loginRoles = rolesQ.data.filter((r) => MVP_LOGIN_ROLE_CODES.has(roleSelectValue(r)));
     setRoleOptions(loginRoles.length ? loginRoles : rolesQ.data);
   }, [rolesQ.data]);
 
@@ -88,7 +94,6 @@ export default function UsuariosTab() {
   const [formNombre, setFormNombre] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formRolId, setFormRolId] = useState('');
-  const [formTelefono, setFormTelefono] = useState('');
   const [formSucursal, setFormSucursal] = useState('');
   const [formPassword, setFormPassword] = useState('');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -111,7 +116,6 @@ export default function UsuariosTab() {
     setFormNombre('');
     setFormEmail('');
     setFormRolId('');
-    setFormTelefono('');
     setFormSucursal('');
     setFormPassword('');
     setFormErrors({});
@@ -128,7 +132,6 @@ export default function UsuariosTab() {
     setFormNombre(u.nombre);
     setFormEmail(u.email);
     setFormRolId(u.rolId);
-    setFormTelefono(u.telefono);
     setFormSucursal(u.sucursal);
     setFormPassword('');
     setFormErrors({});
@@ -146,10 +149,11 @@ export default function UsuariosTab() {
       const pwdErr = validatePassword(formPassword);
       if (pwdErr) errs.password = pwdErr;
     }
-    const phoneErr = validatePhone(formTelefono, false);
-    if (phoneErr) errs.telefono = phoneErr;
     setFormErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      afterValidationErrors(errs);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -254,7 +258,7 @@ export default function UsuariosTab() {
             )}
           </div>
           <Select
-            options={[{ value: '', label: 'Todos los roles' }, ...roleOptions.map((r) => ({ value: r.id, label: r.nombre }))]}
+            options={[{ value: '', label: 'Todos los roles' }, ...roleOptions.map((r) => ({ value: roleSelectValue(r), label: r.nombre }))]}
             value={rolFilter}
             onChange={(e) => setRolFilter(e.target.value)}
             className="w-full sm:w-44"
@@ -347,18 +351,18 @@ export default function UsuariosTab() {
           <Select
             label="Rol"
             required
-            options={[{ value: '', label: 'Seleccionar rol...' }, ...roleOptions.map((r) => ({ value: r.id, label: r.nombre }))]}
+            options={[{ value: '', label: 'Seleccionar rol...' }, ...roleOptions.map((r) => ({ value: roleSelectValue(r), label: r.nombre }))]}
             value={formRolId}
             onChange={(e) => { setFormRolId(e.target.value); if (formErrors.rol) setFormErrors((p) => { const n = { ...p }; delete n.rol; return n; }); }}
             error={formErrors.rol}
           />
-          <Input label="Teléfono" maxLength={FieldLimits.phone} value={formTelefono} onChange={(e) => { setFormTelefono(e.target.value); if (formErrors.telefono) setFormErrors((p) => { const n = { ...p }; delete n.telefono; return n; }); }} error={formErrors.telefono} placeholder="+52 55 0000 0000" />
           <Input label="Sucursal" value={formSucursal} onChange={(e) => setFormSucursal(e.target.value)} placeholder="Se asigna la sucursal activa del contexto" disabled hint={branchId ? 'Se vinculará a la sucursal activa' : 'Sin sucursal activa en el contexto'} />
           {!editingUser && (
             <Input
               label="Contraseña Temporal"
               required
               type="password"
+              maxLength={FieldLimits.password}
               value={formPassword}
               onChange={(e) => { setFormPassword(e.target.value); if (formErrors.password) setFormErrors((p) => { const n = { ...p }; delete n.password; return n; }); }}
               error={formErrors.password}

@@ -46,6 +46,7 @@ export default function Configuracion() {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
+  // tenant/roles/notif: fail-soft en settingsApi (sin throw) → no toast de error al abrir Configuración
   const tenantQ = useApiResource({
     queryKey: queryKeys.settings.tenant(),
     queryFn: () => settingsApi.getTenantSettings(),
@@ -53,18 +54,22 @@ export default function Configuracion() {
   const cyclesQ = useApiResource({
     queryKey: queryKeys.cycles.list(),
     queryFn: () => cyclesApi.listCycles(),
+    errorToast: 'Error al cargar ciclos escolares',
   });
   const methodsQ = useApiResource({
     queryKey: queryKeys.settings.paymentMethods(),
     queryFn: () => settingsApi.listPaymentMethods(),
+    errorToast: 'Error al cargar métodos de pago',
   });
   const conceptsQ = useApiResource({
     queryKey: queryKeys.settings.paymentConcepts(),
     queryFn: () => settingsApi.listPaymentConcepts(),
+    errorToast: 'Error al cargar conceptos de pago',
   });
   const levelsQ = useApiResource({
     queryKey: queryKeys.settings.catalogs(),
     queryFn: () => settingsApi.listEducationLevels(),
+    errorToast: 'Error al cargar catálogos',
   });
   const rolesQ = useApiResource({
     queryKey: ['settings', 'roles'],

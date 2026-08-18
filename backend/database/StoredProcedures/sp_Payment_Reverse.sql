@@ -122,7 +122,7 @@ BEGIN
     );
 
     UPDATE dbo.CashSession
-    SET TotalExpense = TotalExpense + @Amount,
+    SET TotalIncome = CASE WHEN TotalIncome >= @Amount THEN TotalIncome - @Amount ELSE 0 END,
         UpdatedAt = SYSUTCDATETIME(),
         UpdatedBy = @UpdatedBy
     WHERE Id = @TargetSessionId;

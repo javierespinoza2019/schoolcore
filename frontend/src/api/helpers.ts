@@ -35,6 +35,16 @@ export function unwrapList<T>(data: PagedResult<T> | T[] | null | undefined): T[
   return data.items ?? [];
 }
 
+/** TotalCount del PagedResult; si es array plano usa itemsLength. */
+export function unwrapTotalCount<T>(
+  data: PagedResult<T> | T[] | null | undefined,
+  itemsLength: number
+): number {
+  if (!data || Array.isArray(data)) return itemsLength;
+  const n = Number(data.totalCount);
+  return Number.isFinite(n) && n >= 0 ? n : itemsLength;
+}
+
 /**
  * Intenta la API; si falla, usa fallback mock **solo en development**.
  * En QA/Production nunca se permiten mocks (aunque se pase allowFallback).

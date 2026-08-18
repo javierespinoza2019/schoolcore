@@ -3,6 +3,7 @@ using SchoolCore.Business.Security;
 using SchoolCore.Common.Exceptions;
 using SchoolCore.Common.Security;
 using SchoolCore.Common.Time;
+using SchoolCore.Common.Validation;
 using SchoolCore.DataAccess.Repositories;
 using SchoolCore.Models.Dtos.Common;
 using SchoolCore.Models.Dtos.Organization;
@@ -181,7 +182,14 @@ public sealed class OrganizationService : IOrganizationService
     public Task<InstitutionSettingsDto> UpsertInstitutionSettingsAsync(InstitutionSettingsUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.DisplayName)) throw AppException.BadRequest("DisplayName is required.");
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.DisplayName, FieldStandards.InstitutionDisplayNameMax, "Nombre", required: true, minLen: 2),
+            FieldValidator.TextFree(request.LegalName, FieldStandards.LegalNameMax, "Razón social"),
+            FieldValidator.Code(request.TaxId, FieldStandards.TaxIdMax, "RFC"),
+            FieldValidator.TextFree(request.Website, FieldStandards.WebsiteMax, "Sitio web"),
+            FieldValidator.Phone(request.Phone),
+            FieldValidator.Email(request.Email),
+            FieldValidator.TextFree(request.Address, FieldStandards.AddressMax, "Dirección"));
         EnsureAllowedTimeZone(request.TimeZoneId, required: true);
         return ExecAsync(() => _repo.UpsertInstitutionSettingsAsync(tenantId, request, userId, ct));
     }
@@ -313,9 +321,11 @@ public sealed class OrganizationService : IOrganizationService
     public async Task<StaffUserDto> CreateStaffAsync(CreateStaffUserRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
-            throw AppException.BadRequest("Email and Password are required.");
-        if (request.Password.Length < 8) throw AppException.BadRequest("Password must be at least 8 characters.");
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.Email(request.Email, required: true),
+            FieldValidator.Password(request.Password),
+            FieldValidator.PersonName(request.FirstName, "El nombre"),
+            FieldValidator.PersonName(request.LastName, "Los apellidos"));
 
         var hash = _auth.HashPassword(request.Password);
         var created = await ExecAsync(() => _repo.CreateStaffAsync(tenantId, Guid.NewGuid(), request.Email.Trim(), hash, request.FirstName, request.LastName, request.IsActive, userId, ct));
@@ -435,9 +445,19 @@ public sealed class OrganizationService : IOrganizationService
 
     private static void ValidateBranch(BranchUpsertRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Code))
-            throw AppException.BadRequest("Name and Code are required.");
-        // null/empty = inherit tenant timezone (allowed)
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.Name, FieldStandards.BranchNameMax, "Nombre", required: true, minLen: 2),
+            FieldValidator.Code(request.Code, FieldStandards.BranchCodeMax, "Código", required: true),
+            FieldValidator.TextFree(request.Address, FieldStandards.BranchAddressMax, "Dirección"),
+            FieldValidator.TextFree(request.City, FieldStandards.CityMax, "Ciudad"),
+            FieldValidator.TextFree(request.State, FieldStandards.StateMax, "Estado"),
+            FieldValidator.PostalCodeMx(request.PostalCode),
+            FieldValidator.Phone(request.Phone),
+            FieldValidator.Email(request.Email),
+            FieldValidator.TextFree(request.DirectorName, 200, "Director"),
+            FieldValidator.Email(request.DirectorEmail),
+            FieldValidator.Phone(request.DirectorPhone, label: "Teléfono del director"));
+
         if (!string.IsNullOrWhiteSpace(request.TimeZoneId))
             EnsureAllowedTimeZone(request.TimeZoneId, required: true);
     }

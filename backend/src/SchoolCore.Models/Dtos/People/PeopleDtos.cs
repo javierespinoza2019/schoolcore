@@ -69,6 +69,8 @@ public sealed class GuardianDto
     public string? Occupation { get; set; }
     public string? Address { get; set; }
     public string Status { get; set; } = "active";
+    /// <summary>Document GUID or http(s) URL. Not a data-URL.</summary>
+    public string? PhotoUrl { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public string? Relationship { get; set; }
@@ -105,6 +107,8 @@ public sealed class GuardianUpsertRequest
     public string? Occupation { get; set; }
     public string? Address { get; set; }
     public string Status { get; set; } = "active";
+    /// <summary>Document GUID or http(s) URL. Not a data-URL.</summary>
+    public string? PhotoUrl { get; set; }
 }
 
 public sealed class LinkGuardianRequest

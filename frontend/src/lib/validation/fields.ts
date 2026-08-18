@@ -1,28 +1,51 @@
-/** Límites alineados a NVARCHAR de SPs (SchoolCore). */
+/**
+ * Validators que consumen el catálogo fieldStandards (única fuente de max/charset).
+ * Los módulos deben preferir validateField(fieldId) o estos helpers.
+ */
+import {
+  CODE_RE,
+  FIELD_STANDARDS,
+  getFieldStandard,
+  PERSON_NAME_RE,
+  TEXT_FREE_RE,
+  type FieldStandard,
+} from './fieldStandards';
+
+/** Límites derivados del catálogo (compat con maxLength={FieldLimits.x}). */
 export const FieldLimits = {
-  name: 100,
-  nameMin: 2,
-  email: 256,
-  phone: 50,
+  name: FIELD_STANDARDS['person.firstName'].maxLen,
+  nameMin: FIELD_STANDARDS['person.firstName'].minLen,
+  email: FIELD_STANDARDS['person.email'].maxLen,
+  phone: FIELD_STANDARDS['person.phone'].maxLen,
   phoneDigitsMin: 8,
-  address: 400,
-  addressBranch: 300,
-  occupation: 150,
-  allergies: 500,
-  medicalNotes: 1000,
-  grade: 50,
-  group: 50,
-  bloodType: 10,
-  specialty: 150,
-  schedule: 500,
-  classroomName: 100,
-  building: 100,
-  city: 100,
-  state: 100,
-  postalCode: 20,
+  address: FIELD_STANDARDS['person.address'].maxLen,
+  addressBranch: FIELD_STANDARDS['org.branchAddress'].maxLen,
+  occupation: FIELD_STANDARDS['person.occupation'].maxLen,
+  allergies: FIELD_STANDARDS['person.allergies'].maxLen,
+  medicalNotes: FIELD_STANDARDS['person.medicalNotes'].maxLen,
+  grade: FIELD_STANDARDS['academic.grade'].maxLen,
+  group: FIELD_STANDARDS['academic.group'].maxLen,
+  bloodType: FIELD_STANDARDS['person.bloodType'].maxLen,
+  specialty: FIELD_STANDARDS['academic.specialty'].maxLen,
+  schedule: FIELD_STANDARDS['academic.scheduleNotes'].maxLen,
+  classroomName: FIELD_STANDARDS['academic.classroomName'].maxLen,
+  building: FIELD_STANDARDS['academic.building'].maxLen,
+  city: FIELD_STANDARDS['org.city'].maxLen,
+  state: FIELD_STANDARDS['org.state'].maxLen,
+  postalCode: FIELD_STANDARDS['org.postalCode'].maxLen,
   directorName: 200,
-  branchName: 200,
-  branchCode: 50,
+  branchName: FIELD_STANDARDS['org.branchName'].maxLen,
+  branchCode: FIELD_STANDARDS['org.branchCode'].maxLen,
+  taxId: FIELD_STANDARDS['org.taxId'].maxLen,
+  website: FIELD_STANDARDS['org.website'].maxLen,
+  institutionDisplayName: FIELD_STANDARDS['org.institutionDisplayName'].maxLen,
+  legalName: FIELD_STANDARDS['org.legalName'].maxLen,
+  paymentNotes: FIELD_STANDARDS['finance.paymentNotes'].maxLen,
+  reverseReason: FIELD_STANDARDS['finance.reverseReason'].maxLen,
+  expenseConcept: FIELD_STANDARDS['finance.expenseConcept'].maxLen,
+  reference: FIELD_STANDARDS['finance.reference'].maxLen,
+  password: FIELD_STANDARDS['auth.password'].maxLen,
+  passwordMin: FIELD_STANDARDS['auth.password'].minLen,
 } as const;
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -35,33 +58,104 @@ export function isValidEmailFormat(value: string): boolean {
   return EMAIL_RE.test(value.trim());
 }
 
-/** null = válido. */
-export function validateRequiredName(value: string, label = 'El nombre'): string | null {
+function charsetError(std: FieldStandard, value: string): string | null {
   const v = value.trim();
-  if (!v) return `${label} es obligatorio`;
-  if (v.length < FieldLimits.nameMin) return `Mínimo ${FieldLimits.nameMin} caracteres`;
-  if (v.length > FieldLimits.name) return `Máximo ${FieldLimits.name} caracteres`;
-  return null;
+  if (!v) return null;
+  switch (std.charset) {
+    case 'personName':
+      if (!PERSON_NAME_RE.test(v)) {
+        return `${std.label}: solo letras, espacios y ' - . (sin números ni símbolos)`;
+      }
+      return null;
+    case 'email':
+      if (!isValidEmailFormat(v)) return 'Formato de correo inválido';
+      return null;
+    case 'phone':
+      if (phoneDigitCount(v) < FieldLimits.phoneDigitsMin) return 'Mínimo 8 dígitos';
+      return null;
+    case 'postalCodeMx':
+      if (!/^\d{5}$/.test(v)) return 'Debe ser 5 dígitos';
+      return null;
+    case 'code':
+      if (!CODE_RE.test(v)) return `${std.label}: use letras, números, _ o -`;
+      return null;
+    case 'textFree':
+      if (!TEXT_FREE_RE.test(v)) return `${std.label}: no se permiten caracteres de control ni < >`;
+      return null;
+    case 'money': {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n <= 0) return 'Ingresa un número válido mayor a 0';
+      if (v.replace(/\D/g, '').length > (std.maxLen || 16)) return `Máximo ${std.maxLen} dígitos`;
+      return null;
+    }
+    case 'password':
+      return null; // complexity in validatePassword
+    case 'digits':
+      if (!/^\d+$/.test(v)) return `${std.label}: solo dígitos`;
+      return null;
+    case 'enum':
+      return null;
+    default:
+      return null;
+  }
+}
+
+/** Valida por fieldId del catálogo. null = OK. */
+export function validateField(
+  fieldId: string,
+  value: string,
+  opts?: { required?: boolean; label?: string }
+): string | null {
+  const std = getFieldStandard(fieldId);
+  const required = opts?.required ?? std.requiredDefault;
+  const label = opts?.label ?? std.label;
+  const v = value.trim();
+
+  if (!v) {
+    return required ? `${label} es obligatorio` : null;
+  }
+  if (v.length < std.minLen && std.minLen > 0 && required) {
+    return `Mínimo ${std.minLen} caracteres`;
+  }
+  if (std.minLen > 0 && v.length < std.minLen && !required) {
+    // optional but partially filled — still enforce min when non-empty for personName etc.
+    if (std.charset === 'personName' || std.charset === 'postalCodeMx') {
+      return `Mínimo ${std.minLen} caracteres`;
+    }
+  }
+  if (v.length > std.maxLen) return `Máximo ${std.maxLen} caracteres`;
+  return charsetError(std, v);
+}
+
+/** null = válido. Usa person.firstName charset. */
+export function validateRequiredName(value: string, label = 'El nombre'): string | null {
+  return validateField('person.firstName', value, { required: true, label });
+}
+
+/** Apellido / nombre opcional con mismo charset. */
+export function validateOptionalName(value: string, label = 'El nombre'): string | null {
+  return validateField('person.firstName', value, { required: false, label });
 }
 
 export function validateEmail(value: string, required: boolean): string | null {
-  const v = value.trim();
-  if (!v) return required ? 'El correo electrónico es obligatorio' : null;
-  if (v.length > FieldLimits.email) return `Máximo ${FieldLimits.email} caracteres`;
-  if (!isValidEmailFormat(v)) return 'Formato de correo inválido';
-  return null;
+  return validateField('person.email', value, { required });
 }
 
 export function validatePhone(value: string, required: boolean, label = 'El teléfono'): string | null {
-  const v = value.trim();
-  if (!v) return required ? `${label} es obligatorio` : null;
-  if (v.length > FieldLimits.phone) return `Máximo ${FieldLimits.phone} caracteres`;
-  if (phoneDigitCount(v) < FieldLimits.phoneDigitsMin) return 'Mínimo 8 dígitos';
-  return null;
+  return validateField('person.phone', value, { required, label });
 }
 
 export function validateMaxLen(value: string, max: number, label: string): string | null {
   if (value.trim().length > max) return `${label}: máximo ${max} caracteres`;
+  return null;
+}
+
+/** Texto libre: max + textFree charset. */
+export function validateTextFree(value: string, max: number, label: string, required = false): string | null {
+  const v = value.trim();
+  if (!v) return required ? `${label} es obligatorio` : null;
+  if (v.length > max) return `${label}: máximo ${max} caracteres`;
+  if (!TEXT_FREE_RE.test(v)) return `${label}: no se permiten caracteres de control ni < >`;
   return null;
 }
 
@@ -79,23 +173,18 @@ export function validateBirthDate(value: string, required = true): string | null
 }
 
 export function validatePositiveNumber(value: string, label: string): string | null {
-  if (!value.trim()) return `${label} es obligatorio`;
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return `Ingresa un número válido mayor a 0`;
-  return null;
+  return validateField('finance.amount', value, { required: true, label });
 }
 
 export function validatePostalCodeMx(value: string, required = true): string | null {
-  const v = value.trim();
-  if (!v) return required ? 'El código postal es obligatorio' : null;
-  if (!/^\d{5}$/.test(v)) return 'Debe ser 5 dígitos';
-  return null;
+  return validateField('org.postalCode', value, { required });
 }
 
-/** BR-03: mínimo 8, 1 mayúscula, 1 minúscula, 1 dígito. */
+/** BR-03: mínimo 8, máx 128, 1 mayúscula, 1 minúscula, 1 dígito. */
 export function validatePassword(value: string): string | null {
   if (!value) return 'La contraseña es obligatoria';
-  if (value.length < 8) return 'Mínimo 8 caracteres';
+  if (value.length < FieldLimits.passwordMin) return `Mínimo ${FieldLimits.passwordMin} caracteres`;
+  if (value.length > FieldLimits.password) return `Máximo ${FieldLimits.password} caracteres`;
   if (!/[A-ZÁÉÍÓÚÑ]/.test(value)) return 'Debe incluir al menos una mayúscula';
   if (!/[a-záéíóúñ]/.test(value)) return 'Debe incluir al menos una minúscula';
   if (!/\d/.test(value)) return 'Debe incluir al menos un dígito';

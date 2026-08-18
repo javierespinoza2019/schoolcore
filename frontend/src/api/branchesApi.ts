@@ -50,7 +50,16 @@ function toBranchBody(payload: Partial<Sucursal>, code: string) {
     area: payload.superficie?.trim() || null,
     levels: Array.isArray(payload.niveles) ? payload.niveles.join(', ') : null,
     operationalStatus: payload.estadoOperativo || 'Operando',
+    photoUrl: toStoredPhotoUrl(payload.fotoUrl),
   };
+}
+
+/** Solo GUID de documento o http(s). Nunca data URL. */
+function toStoredPhotoUrl(value?: string | null): string | null {
+  const s = (value ?? '').trim();
+  if (!s || s.startsWith('data:')) return null;
+  if (isGuid(s) || s.startsWith('http://') || s.startsWith('https://')) return s;
+  return null;
 }
 
 function normalizeBranch(raw: Record<string, unknown>): Sucursal {
@@ -128,7 +137,7 @@ function uniqueBranchCode(name: string): string {
     .toUpperCase()
     .slice(0, 8);
   const suffix = Date.now().toString(36).toUpperCase();
-  return `${slug || 'BR'}${suffix}`.slice(0, 50);
+  return `${slug || 'BR'}${suffix}`.slice(0, 20);
 }
 
 export async function createBranch(payload: Partial<Sucursal>): Promise<ApiResponse<Sucursal>> {
@@ -169,4 +178,21 @@ export async function updateBranch(
 
 export async function deleteBranch(id: string | number): Promise<ApiResponse<null>> {
   return apiClient<null>(`/branches/${id}`, { method: 'DELETE' });
+}
+
+/** POST /documents — foto de sucursal (entityType distinto al expediente). */
+export async function uploadBranchPhoto(
+  branchId: string,
+  file: File
+): Promise<ApiResponse<string>> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('entityType', 'branch-photo');
+  form.append('entityId', branchId);
+  const res = await apiClient<Record<string, unknown>>('/documents', { method: 'POST', body: form });
+  if (res.success && res.data) {
+    const id = String(res.data.id ?? '');
+    return { ...res, data: isGuid(id) ? id : null };
+  }
+  return { ...res, data: null };
 }

@@ -40,26 +40,22 @@ function normalizeRow(raw: Record<string, unknown>): FeatureFlagRow {
   };
 }
 
-/** GET /feature-flags?branchId= — resolución Branch > Tenant > Global. */
+/** GET /feature-flags?branchId= — resolución Branch > Tenant > Global. Fallo → throw (no fingir todo OFF). */
 export async function listFeatureFlags(branchId?: string | null): Promise<{
   flags: FeatureFlagsMap;
   resolvedFrom: FeatureResolvedFromMap;
   rows: FeatureFlagRow[];
 }> {
   const q = buildQuery({ branchId: branchId ?? undefined });
-  try {
-    const res = await apiClient<FeatureFlagRow[] | Record<string, unknown>[]>(`/feature-flags${q}`);
-    if (!res.success || !res.data) {
-      return { flags: { ...DEFAULT_FEATURE_FLAGS }, resolvedFrom: {}, rows: [] };
-    }
-    const rows = unwrapList(res.data as FeatureFlagRow[]).map((r) =>
-      normalizeRow(r as unknown as Record<string, unknown>)
-    );
-    const mapped = mapRows(rows);
-    return { ...mapped, rows };
-  } catch {
-    return { flags: { ...DEFAULT_FEATURE_FLAGS }, resolvedFrom: {}, rows: [] };
+  const res = await apiClient<FeatureFlagRow[] | Record<string, unknown>[]>(`/feature-flags${q}`);
+  if (!res.success || !res.data) {
+    throw new Error(res.message || res.errors?.[0] || 'No se pudieron cargar feature flags');
   }
+  const rows = unwrapList(res.data as FeatureFlagRow[]).map((r) =>
+    normalizeRow(r as unknown as Record<string, unknown>)
+  );
+  const mapped = mapRows(rows);
+  return { ...mapped, rows };
 }
 
 /** PUT /feature-flags — BranchId null = override tenant; con GUID = override sucursal. */

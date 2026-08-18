@@ -22,7 +22,9 @@ BEGIN
       AND (@BranchId IS NULL OR c.BranchId=@BranchId)
     ORDER BY c.DueDate;
 
-    SELECT ISNULL(el.Name, N'Sin nivel') AS LevelName, COUNT(1) AS OverdueCount, SUM(c.NetAmount) AS OverdueAmount
+    SELECT ISNULL(el.Name, N'Sin nivel') AS LevelName,
+           COUNT(DISTINCT c.StudentId) AS OverdueCount,
+           SUM(c.NetAmount) AS OverdueAmount
     FROM dbo.Charge c
     INNER JOIN dbo.Student s ON s.Id=c.StudentId
     LEFT JOIN dbo.EducationLevel el ON el.Id=s.EducationLevelId

@@ -35,6 +35,7 @@ export function useApiResource<T>(options: {
   return {
     ...query,
     data: query.data?.data,
+    totalCount: query.data?.totalCount,
     source: query.data?.source,
     isFallback: query.data?.source === 'fallback',
   };

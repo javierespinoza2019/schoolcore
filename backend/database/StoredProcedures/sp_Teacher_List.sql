@@ -10,7 +10,7 @@ CREATE OR ALTER PROCEDURE dbo.sp_Teacher_List
 AS
 BEGIN
     SET NOCOUNT ON;
-    IF @Page < 1 SET @Page = 1; IF @PageSize < 1 SET @PageSize = 50; IF @PageSize > 200 SET @PageSize = 200;
+    IF @Page < 1 SET @Page = 1; IF @PageSize < 1 SET @PageSize = 50; IF @PageSize > 100 SET @PageSize = 100;
     SELECT @TotalCount = COUNT(1) FROM dbo.Teacher WHERE TenantId=@TenantId AND IsDeleted=0
       AND (@BranchId IS NULL OR BranchId=@BranchId)
       AND (@Search IS NULL OR FirstName LIKE N'%'+@Search+N'%' OR LastName LIKE N'%'+@Search+N'%' OR Email LIKE N'%'+@Search+N'%');

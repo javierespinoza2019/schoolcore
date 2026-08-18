@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Modal from '@/components/base/Modal';
 import Button from '@/components/base/Button';
@@ -17,10 +17,11 @@ import {
   FieldLimits,
   assignError,
   validateEmail,
-  validateMaxLen,
   validatePhone,
   validateRequiredName,
+  validateTextFree,
 } from '@/lib/validation/fields';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface ParentFormModalProps {
   open: boolean;
@@ -39,6 +40,10 @@ export interface ParentFormData {
   address: string;
   status: string;
   linkedStudentIds: string[];
+  /** Preview (data URL) o referencia persistida (GUID / http). */
+  photo: string;
+  photoFile: File | null;
+  photoRemoved: boolean;
 }
 
 const emptyForm: ParentFormData = {
@@ -50,6 +55,9 @@ const emptyForm: ParentFormData = {
   address: '',
   status: 'active',
   linkedStudentIds: [],
+  photo: '',
+  photoFile: null,
+  photoRemoved: false,
 };
 
 const statusConfig: Record<
@@ -73,11 +81,14 @@ export default function ParentFormModal({
   const [form, setForm] = useState<ParentFormData>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [studentSearch, setStudentSearch] = useState('');
+  const [photoPreview, setPhotoPreview] = useState<string>('');
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const studentsQ = useQuery({
-    queryKey: queryKeys.students.list({ pageSize: 200, forParentForm: true }),
+    queryKey: queryKeys.students.list({ pageSize: 100, forParentForm: true }),
     queryFn: async () => {
-      const res = await studentsApi.listStudents({ pageSize: 200 });
+      const res = await studentsApi.listStudents({ pageSize: 100 });
       return res.data ?? [];
     },
     enabled: open,
@@ -97,9 +108,14 @@ export default function ParentFormModal({
         address: parent.address,
         status: parent.status,
         linkedStudentIds: [...parent.childrenIds],
+        photo: parent.photo || '',
+        photoFile: null,
+        photoRemoved: false,
       });
+      setPhotoPreview(parent.photo || '');
     } else {
       setForm(emptyForm);
+      setPhotoPreview('');
     }
     setErrors({});
     setStudentSearch('');
@@ -114,6 +130,59 @@ export default function ParentFormModal({
         return n;
       });
     }
+  };
+
+  const processFile = (file: File) => {
+    const allowed = ['image/jpeg', 'image/png'];
+    if (!allowed.includes(file.type)) {
+      setErrors((prev) => ({ ...prev, photo: 'Solo se permiten imágenes JPG o PNG (máx. 5 MB)' }));
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setErrors((prev) => ({ ...prev, photo: 'La imagen no debe superar 5 MB' }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      setPhotoPreview(dataUrl);
+      setForm((prev) => ({ ...prev, photo: dataUrl, photoFile: file, photoRemoved: false }));
+      if (errors.photo) {
+        setErrors((prev) => {
+          const n = { ...prev };
+          delete n.photo;
+          return n;
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processFile(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleRemovePhoto = () => {
+    setPhotoPreview('');
+    setForm((prev) => ({ ...prev, photo: '', photoFile: null, photoRemoved: true }));
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const filteredStudents = useMemo(() => {
@@ -147,17 +216,17 @@ export default function ParentFormModal({
 
     assignError(newErrors, 'firstName', validateRequiredName(form.firstName, 'El nombre'));
     assignError(newErrors, 'lastName', validateRequiredName(form.lastName, 'Los apellidos'));
-    assignError(newErrors, 'email', validateEmail(form.email, true));
-    assignError(newErrors, 'phone', validatePhone(form.phone, true));
-
-    if (!form.occupation.trim()) newErrors.occupation = 'La ocupación es obligatoria';
-    assignError(newErrors, 'occupation', validateMaxLen(form.occupation, FieldLimits.occupation, 'Ocupación'));
-
-    if (!form.address.trim()) newErrors.address = 'La dirección es obligatoria';
-    assignError(newErrors, 'address', validateMaxLen(form.address, FieldLimits.address, 'Dirección'));
+    assignError(newErrors, 'email', validateEmail(form.email, false));
+    assignError(newErrors, 'phone', validatePhone(form.phone, false));
+    assignError(newErrors, 'occupation', validateTextFree(form.occupation, FieldLimits.occupation, 'Ocupación', false));
+    assignError(newErrors, 'address', validateTextFree(form.address, FieldLimits.address, 'Dirección', false));
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (Object.keys(newErrors).length > 0) {
+      afterValidationErrors(newErrors);
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -202,6 +271,77 @@ export default function ParentFormModal({
       <div className="space-y-5">
         <div>
           <h4 className="text-sm font-semibold text-foreground-800 mb-3 flex items-center gap-2">
+            <i className="ri-camera-line text-primary-500" />
+            Fotografía
+          </h4>
+          <div className="flex items-start gap-5">
+            <div className="flex-shrink-0">
+              {photoPreview ? (
+                <div className="relative">
+                  <TeacherAvatar
+                    src={photoPreview}
+                    alt="Vista previa"
+                    filenameHint="guardian-photo"
+                    className="w-24 h-24 rounded-xl object-cover object-top border-2 border-secondary-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    className="absolute -top-2 -right-2 w-6 h-6 flex items-center justify-center rounded-full bg-red-500 text-white text-xs hover:bg-red-600 transition-colors cursor-pointer shadow-sm"
+                    title="Quitar foto"
+                  >
+                    <i className="ri-close-line" />
+                  </button>
+                </div>
+              ) : (
+                <div className="w-24 h-24 rounded-xl bg-background-100 border-2 border-dashed border-secondary-300 flex flex-col items-center justify-center gap-1">
+                  <i className="ri-user-line text-2xl text-foreground-300" />
+                  <span className="text-3xs text-foreground-400">Sin foto</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1">
+              <div
+                className={`relative rounded-lg border-2 border-dashed p-4 text-center transition-all duration-150 cursor-pointer ${
+                  isDragging
+                    ? 'border-primary-400 bg-primary-50/50'
+                    : 'border-secondary-300 hover:border-secondary-400 bg-background-50'
+                }`}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <div className="flex flex-col items-center gap-1.5">
+                  <div className="w-9 h-9 rounded-full bg-secondary-100 flex items-center justify-center">
+                    <i className="ri-upload-cloud-2-line text-lg text-foreground-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground-700">
+                      {photoPreview ? 'Cambiar fotografía' : 'Subir fotografía'}
+                    </p>
+                    <p className="text-xs text-foreground-400 mt-0.5">
+                      Arrastra una imagen o haz clic para seleccionar
+                    </p>
+                  </div>
+                  <span className="text-3xs text-foreground-300">JPG o PNG · Máx. 5 MB</span>
+                </div>
+              </div>
+              {errors.photo && <p className="mt-1.5 text-xs text-red-500">{errors.photo}</p>}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4 className="text-sm font-semibold text-foreground-800 mb-3 flex items-center gap-2">
             <i className="ri-user-line text-primary-500" />
             Datos Personales
           </h4>
@@ -209,6 +349,7 @@ export default function ParentFormModal({
             <Input
               label="Nombre(s)"
               required
+              autoComplete="given-name"
               maxLength={FieldLimits.name}
               value={form.firstName}
               onChange={(e) => handleChange('firstName', e.target.value)}
@@ -218,6 +359,7 @@ export default function ParentFormModal({
             <Input
               label="Apellidos"
               required
+              autoComplete="family-name"
               maxLength={FieldLimits.name}
               value={form.lastName}
               onChange={(e) => handleChange('lastName', e.target.value)}
@@ -227,7 +369,7 @@ export default function ParentFormModal({
             <Input
               label="Email"
               type="email"
-              required
+              autoComplete="email"
               maxLength={FieldLimits.email}
               value={form.email}
               onChange={(e) => handleChange('email', e.target.value)}
@@ -236,7 +378,8 @@ export default function ParentFormModal({
             />
             <Input
               label="Teléfono"
-              required
+              type="tel"
+              autoComplete="tel"
               maxLength={FieldLimits.phone}
               value={form.phone}
               onChange={(e) => handleChange('phone', e.target.value)}
@@ -245,7 +388,6 @@ export default function ParentFormModal({
             />
             <Input
               label="Ocupación"
-              required
               maxLength={FieldLimits.occupation}
               value={form.occupation}
               onChange={(e) => handleChange('occupation', e.target.value)}
@@ -265,7 +407,7 @@ export default function ParentFormModal({
           <div className="mt-3">
             <Input
               label="Dirección"
-              required
+              autoComplete="street-address"
               maxLength={FieldLimits.address}
               value={form.address}
               onChange={(e) => handleChange('address', e.target.value)}

@@ -16,7 +16,7 @@ import { usuariosSistema } from '@/mocks/usuarios';
 export type TenantSettings = typeof configInstitucion;
 export type PaymentMethod = (typeof metodosPago)[number];
 export type EducationLevel = (typeof nivelesEducativos)[number];
-export type RoleInfo = (typeof rolesPermisos)[number];
+export type RoleInfo = (typeof rolesPermisos)[number] & { code?: string };
 export type NotificationSetting = (typeof notificacionesSettings)[number];
 
 export interface EmailTemplateSummary {
@@ -31,34 +31,52 @@ export interface EmailTemplateSummary {
   primaryColor?: string;
 }
 
-/** GET /institution-settings */
+/** GET /institution-settings — si no hay fila o API falla, form vacío editable (primer alta). */
 export async function getTenantSettings(): Promise<FetchResult<TenantSettings>> {
-  const result = await fetchOrFallback<Record<string, unknown>>(
-    () => apiClient('/institution-settings'),
-    () => configInstitucion as unknown as Record<string, unknown>
-  );
-  if (result.source === 'api' && result.data) {
-    const d = result.data;
+  const empty: TenantSettings = {
+    ...configInstitucion,
+    nombre: '',
+    nombreCompleto: '',
+    rfc: '',
+    telefono: '',
+    email: '',
+    sitioWeb: '',
+    direccion: '',
+    timeZoneId: 'America/Mexico_City',
+  } as TenantSettings;
+
+  try {
+    const res = await apiClient<Record<string, unknown> | null>('/institution-settings');
+    if (!res.success) {
+      return { data: empty, source: 'api', message: res.message || 'Sin configuración de institución' };
+    }
+    if (!res.data) {
+      return { data: empty, source: 'api', message: 'Institución sin datos; completa y guarda.' };
+    }
+    const d = res.data;
     return {
       data: {
         ...configInstitucion,
-        nombre: String(d.displayName ?? configInstitucion.nombre),
-        nombreCompleto: String(d.legalName ?? d.displayName ?? configInstitucion.nombreCompleto ?? ''),
-        rfc: String(d.taxId ?? configInstitucion.rfc ?? ''),
-        telefono: String(d.phone ?? configInstitucion.telefono ?? ''),
-        email: String(d.email ?? configInstitucion.email ?? ''),
-        sitioWeb: String(d.website ?? configInstitucion.sitioWeb ?? ''),
-        direccion: String(d.address ?? configInstitucion.direccion ?? ''),
+        nombre: String(d.displayName ?? ''),
+        nombreCompleto: String(d.legalName ?? d.displayName ?? ''),
+        rfc: String(d.taxId ?? ''),
+        telefono: String(d.phone ?? ''),
+        email: String(d.email ?? ''),
+        sitioWeb: String(d.website ?? ''),
+        direccion: String(d.address ?? ''),
         logo: d.logoUrl ?? configInstitucion.logo,
         timeZoneId: String(d.timeZoneId ?? 'America/Mexico_City'),
       } as TenantSettings,
       source: 'api',
     };
+  } catch (err) {
+    console.warn('[SchoolCore] institution-settings no disponible:', err);
+    return {
+      data: empty,
+      source: 'api',
+      message: 'No se pudo cargar institución (¿API desactualizada?). Puedes intentar guardar de nuevo tras desplegar.',
+    };
   }
-  return {
-    data: { ...configInstitucion, timeZoneId: 'America/Mexico_City' } as TenantSettings,
-    source: 'fallback',
-  };
 }
 
 export async function updateTenantSettings(
@@ -397,15 +415,9 @@ export async function deleteEducationLevel(id: string): Promise<ApiResponse<null
   return apiClient<null>(`/education-levels/${id}`, { method: 'DELETE' });
 }
 
-/** GET /roles */
-export async function listRoles(): Promise<FetchResult<RoleInfo[]>> {
-  const result = await fetchOrFallback<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
-    () => apiClient('/roles'),
-    () => rolesPermisos as unknown as Record<string, unknown>[]
-  );
-  const rawItems = Array.isArray(result.data) ? result.data : unwrapList(result.data);
-  const items: RoleInfo[] = rawItems.map((raw) => {
-    const r = raw as Record<string, unknown>;
+function mapRoleItems(rawItems: Record<string, unknown>[]): RoleInfo[] {
+  return rawItems.map((raw) => {
+    const r = raw;
     const code = String(r.roleCode ?? r.code ?? '');
     const roleId = String(r.roleId ?? r.id ?? code);
     const name = String(r.roleName ?? r.name ?? r.nombre ?? roleLabel(code));
@@ -413,18 +425,46 @@ export async function listRoles(): Promise<FetchResult<RoleInfo[]>> {
       id: roleId,
       code,
       nombre: name,
-      usuarios: Number(r.usuarios ?? 0),
+      usuarios: Number(r.usuarios ?? r.userCount ?? 0),
       descripcion: String(
         r.descripcion ?? r.description ?? (code ? `Código: ${code}` : '')
       ),
     } as RoleInfo;
   });
-  if (result.source === 'api') return { data: items, source: 'api' };
-  return { data: items.length ? items : rolesPermisos, source: 'fallback' };
 }
 
+/** GET /roles — fail-soft si API desactualizada (404) para no romper Configuración. */
+export async function listRoles(): Promise<FetchResult<RoleInfo[]>> {
+  try {
+    const res = await apiClient<PagedResult<Record<string, unknown>> | Record<string, unknown>[]>(
+      '/roles'
+    );
+    if (!res.success) {
+      return {
+        data: [],
+        source: 'api',
+        message: res.message || 'Roles no disponibles; redeploy API si persiste.',
+      };
+    }
+    const rawItems = Array.isArray(res.data) ? res.data : unwrapList(res.data);
+    return { data: mapRoleItems(rawItems as Record<string, unknown>[]), source: 'api' };
+  } catch (err) {
+    console.warn('[SchoolCore] roles no disponible:', err);
+    return {
+      data: [],
+      source: 'api',
+      message: 'No se pudieron cargar roles (¿API desactualizada?).',
+    };
+  }
+}
+
+/** Notificaciones automáticas: MVP sin persistencia (no llamar endpoint inexistente). */
 export async function listNotificationSettings(): Promise<FetchResult<NotificationSetting[]>> {
-  return fetchOrFallback(() => apiClient('/settings/notification-settings'), () => notificacionesSettings);
+  return {
+    data: notificacionesSettings.map((n) => ({ ...n })),
+    source: 'api',
+    message: 'Catálogo informativo; persistencia de notificaciones aún no disponible.',
+  };
 }
 
 /** GET /users — normaliza StaffUserDto (API) → UsuarioSistema (UI). */
@@ -576,10 +616,19 @@ export async function updateEmailTemplate(
   id: string,
   payload: Partial<EmailTemplateSummary> & { bodyText?: string; primaryColor?: string; logoUrl?: string }
 ): Promise<ApiResponse<EmailTemplateSummary>> {
+  const templateKey = (payload.key || '').trim();
+  if (!templateKey) {
+    return {
+      success: false,
+      data: null,
+      message: 'templateKey es requerido (no usar id GUID).',
+      errors: ['Validation'],
+    };
+  }
   const res = await apiClient<Record<string, unknown>>('/email-templates', {
     method: 'PUT',
     body: {
-      templateKey: payload.key ?? id,
+      templateKey,
       culture: payload.culture ?? 'es',
       subject: payload.subject ?? '',
       htmlBody: payload.htmlBody ?? payload.bodyText ?? '',
@@ -594,7 +643,7 @@ export async function updateEmailTemplate(
       ...res,
       data: {
         id: String(r.id ?? id),
-        key: String(r.templateKey ?? payload.key ?? ''),
+        key: String(r.templateKey ?? templateKey),
         name: String(r.templateKey ?? payload.name ?? ''),
         subject: String(r.subject ?? ''),
         isOverride: true,

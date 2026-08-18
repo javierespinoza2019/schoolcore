@@ -16,9 +16,9 @@ import {
   assignError,
   validateBirthDate,
   validateEmail,
-  validateMaxLen,
   validatePhone,
   validateRequiredName,
+  validateTextFree,
 } from '@/lib/validation/fields';
 import * as parentsApi from '@/api/parentsApi';
 import { queryKeys } from '@/api/queryKeys';
@@ -26,6 +26,7 @@ import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import { collectStudentInteractionIssues } from '@/lib/interaction/guards';
 import { confirmSoftWarnings } from '@/lib/interaction/confirmSoft';
 import { useToast } from '@/components/base/Toast';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface StudentFormModalProps {
   open: boolean;
@@ -134,7 +135,7 @@ export default function StudentFormModal({
 
   const parentsQuery = useQuery({
     queryKey: queryKeys.parents.list({}),
-    queryFn: () => parentsApi.listParents({ pageSize: 200 }),
+    queryFn: () => parentsApi.listParents({ pageSize: 100 }),
     enabled: open,
   });
   const allParents: Parent[] = parentsQuery.data?.data ?? [];
@@ -319,9 +320,9 @@ export default function StudentFormModal({
     assignError(newErrors, 'email', validateEmail(form.email, false));
     assignError(newErrors, 'phone', validatePhone(form.phone, false));
     assignError(newErrors, 'birthDate', validateBirthDate(form.birthDate, true));
-    assignError(newErrors, 'address', validateMaxLen(form.address, FieldLimits.address, 'Dirección'));
-    assignError(newErrors, 'allergies', validateMaxLen(form.allergies, FieldLimits.allergies, 'Alergias'));
-    assignError(newErrors, 'medicalNotes', validateMaxLen(form.medicalNotes, FieldLimits.medicalNotes, 'Notas médicas'));
+    assignError(newErrors, 'address', validateTextFree(form.address, FieldLimits.address, 'Dirección'));
+    assignError(newErrors, 'allergies', validateTextFree(form.allergies, FieldLimits.allergies, 'Alergias'));
+    assignError(newErrors, 'medicalNotes', validateTextFree(form.medicalNotes, FieldLimits.medicalNotes, 'Notas médicas'));
 
     if (!form.level) newErrors.level = 'Selecciona un nivel';
     if (!form.grade) newErrors.grade = 'Selecciona un grado';
@@ -335,7 +336,11 @@ export default function StudentFormModal({
     if (!form.status) newErrors.status = 'Selecciona un estado';
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (Object.keys(newErrors).length > 0) {
+      afterValidationErrors(newErrors);
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -359,6 +364,7 @@ export default function StudentFormModal({
       showToast(first.message, 'error');
       if (first.code === 'CTX_NO_BRANCH') {
         setErrors((prev) => ({ ...prev, branchId: first.message }));
+        afterValidationErrors({ branchId: first.message });
       }
       if (first.code === 'CTX_NO_CYCLE') {
         showToast(first.message, 'error');
@@ -368,6 +374,7 @@ export default function StudentFormModal({
           ...prev,
           group: first.message,
         }));
+        afterValidationErrors({ group: first.message });
       }
       return;
     }
@@ -484,6 +491,7 @@ export default function StudentFormModal({
             <Input
               label="Nombre(s)"
               required
+              autoComplete="given-name"
               maxLength={FieldLimits.name}
               value={form.firstName}
               onChange={(e) => handleChange('firstName', e.target.value)}
@@ -493,6 +501,7 @@ export default function StudentFormModal({
             <Input
               label="Apellidos"
               required
+              autoComplete="family-name"
               maxLength={FieldLimits.name}
               value={form.lastName}
               onChange={(e) => handleChange('lastName', e.target.value)}
@@ -502,6 +511,7 @@ export default function StudentFormModal({
             <Input
               label="Email"
               type="email"
+              autoComplete="email"
               maxLength={FieldLimits.email}
               value={form.email}
               onChange={(e) => handleChange('email', e.target.value)}
@@ -510,6 +520,8 @@ export default function StudentFormModal({
             />
             <Input
               label="Teléfono"
+              type="tel"
+              autoComplete="tel"
               maxLength={FieldLimits.phone}
               value={form.phone}
               onChange={(e) => handleChange('phone', e.target.value)}

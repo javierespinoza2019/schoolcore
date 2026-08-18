@@ -10,6 +10,7 @@ import { useToast } from '@/components/base/Toast';
 import * as cyclesApi from '@/api/cyclesApi';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface CicloEscolar {
   id: string;
@@ -56,7 +57,10 @@ export default function CiclosTab({ ciclos }: Props) {
     if (!formFin) errs.fin = 'Selecciona la fecha de fin';
     if (formInicio && formFin && formFin <= formInicio) errs.fin = 'La fecha de fin debe ser posterior al inicio';
     setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      afterValidationErrors(errs);
+      return;
+    }
 
     setSaving(true);
     const payload = {

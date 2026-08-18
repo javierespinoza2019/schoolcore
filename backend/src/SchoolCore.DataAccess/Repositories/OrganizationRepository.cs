@@ -115,6 +115,7 @@ public sealed class OrganizationRepository : IOrganizationRepository
             request.Area,
             request.Levels,
             request.OperationalStatus,
+            request.PhotoUrl,
             CreatedBy = userId
         }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
     }
@@ -144,6 +145,7 @@ public sealed class OrganizationRepository : IOrganizationRepository
             request.Area,
             request.Levels,
             request.OperationalStatus,
+            request.PhotoUrl,
             UpdatedBy = userId
         }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
     }
@@ -537,7 +539,13 @@ public sealed class OrganizationRepository : IOrganizationRepository
     {
         await using var conn = await OpenAsync(ct);
         var raw = await conn.QueryAsync(new CommandDefinition("sp_Role_List", commandType: CommandType.StoredProcedure, cancellationToken: ct));
-        return raw.Select(r => new RoleDto { RoleId = (Guid)r.Id, RoleCode = (string)r.Code, RoleName = (string)r.Name }).ToList();
+        return raw.Select(r => new RoleDto
+        {
+            RoleId = (Guid)r.Id,
+            RoleCode = (string)r.Code,
+            RoleName = (string)r.Name,
+            UserCount = r.UserCount == null ? 0 : (int)r.UserCount
+        }).ToList();
     }
 
     public async Task<IReadOnlyList<EmailTemplateDto>> ListEmailTemplatesAsync(Guid tenantId, CancellationToken ct = default)

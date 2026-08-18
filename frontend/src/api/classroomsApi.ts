@@ -1,5 +1,5 @@
 import { apiClient } from '@/api/apiClient';
-import { buildQuery, fetchOrFallback, isGuid, unwrapList } from '@/api/helpers';
+import { buildQuery, fetchOrFallback, isGuid, unwrapList, unwrapTotalCount } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
 import type { Salon, SalonGrupo } from '@/mocks/salones';
 import { salonesData } from '@/mocks/salones';
@@ -110,7 +110,7 @@ function toClassroomUpsert(payload: Partial<Salon> & { branchId?: string }) {
     grade: payload.grado,
     groupCode: payload.grupo,
     capacity: payload.capacidad ?? 0,
-    occupied: payload.ocupados ?? 0,
+    occupied: payload.ocupados !== undefined ? payload.ocupados : null,
     roomType: payload.tipo,
     building: payload.edificio,
     floorNumber: payload.piso,
@@ -138,8 +138,14 @@ export async function listClassrooms(
     () => salonesData
   );
   const items = unwrapList(result.data).map((x) => normalizeClassroom(x));
-  if (result.source === 'api') return { data: items, source: 'api', message: result.message };
-  return { data: items.length ? items : salonesData, source: 'fallback', message: result.message };
+  const totalCount = unwrapTotalCount(result.data, items.length);
+  if (result.source === 'api') return { data: items, totalCount, source: 'api', message: result.message };
+  return {
+    data: items.length ? items : salonesData,
+    totalCount: items.length ? totalCount : salonesData.length,
+    source: 'fallback',
+    message: result.message,
+  };
 }
 
 export async function createClassroom(payload: Partial<Salon> & { branchId?: string }): Promise<ApiResponse<Salon>> {

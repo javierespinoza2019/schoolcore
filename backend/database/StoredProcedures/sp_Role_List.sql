@@ -9,6 +9,14 @@ CREATE OR ALTER PROCEDURE dbo.sp_Role_List
 AS
 BEGIN
     SET NOCOUNT ON;
-    SELECT Id, Code, Name, IsSystem FROM dbo.Role ORDER BY Name;
+    SELECT r.Id, r.Code, r.Name, r.IsSystem,
+           (
+               SELECT COUNT(1)
+               FROM dbo.UserRole ur
+               INNER JOIN dbo.[User] u ON u.Id = ur.UserId AND u.IsDeleted = 0
+               WHERE ur.RoleId = r.Id
+           ) AS UserCount
+    FROM dbo.Role r
+    ORDER BY r.Name;
 END
 GO

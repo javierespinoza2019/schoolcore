@@ -7,6 +7,7 @@ import Select from '@/components/base/Select';
 import type { PagoConcepto } from '@/mocks/finanzas';
 import {
   CASH_V1_PARTIAL_PAYMENTS,
+  isOpenChargeStatus,
   listCharges,
   registerPayment,
   type ChargeSummary,
@@ -20,6 +21,7 @@ import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
 import { friendlyApiError } from '@/lib/interaction/messages';
 import { newPaymentIdempotencyKey } from '@/lib/finance/idempotency';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface RegistrarPagoModalProps {
   open: boolean;
@@ -55,7 +57,7 @@ export default function RegistrarPagoModal({
 
   const studentsQ = useQuery({
     queryKey: queryKeys.students.list({ branchId, forPayment: true }),
-    queryFn: () => studentsApi.listStudents({ branchId, pageSize: 200 }),
+    queryFn: () => studentsApi.listStudents({ branchId, pageSize: 100 }),
     enabled: open,
   });
 
@@ -72,14 +74,18 @@ export default function RegistrarPagoModal({
   });
 
   const chargesQ = useQuery({
-    queryKey: queryKeys.finance.charges({ studentId, status: 'pending', branchId }),
-    queryFn: () =>
-      listCharges({
+    queryKey: queryKeys.finance.charges({ studentId, status: 'open', branchId }),
+    queryFn: async () => {
+      const res = await listCharges({
         studentId,
         branchId,
-        status: 'pending',
         pageSize: 100,
-      }),
+      });
+      return {
+        ...res,
+        data: (res.data ?? []).filter((c) => isOpenChargeStatus(c.status)),
+      };
+    },
     enabled: open && isGuid(studentId),
   });
 
@@ -142,7 +148,10 @@ export default function RegistrarPagoModal({
       errs.chargeId = 'El cargo no tiene monto neto válido';
     }
     setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      afterValidationErrors(errs);
+      return;
+    }
     if (!selectedCharge) return;
 
     setSaving(true);
@@ -208,6 +217,7 @@ export default function RegistrarPagoModal({
               ? 'text-emerald-800 bg-emerald-50 border-emerald-100'
               : 'text-amber-800 bg-amber-50 border-amber-100'
           }`}
+          aria-invalid={errors.session ? true : undefined}
         >
           {openSessionQ.isLoading
             ? 'Verificando corte de caja...'
@@ -303,6 +313,7 @@ export default function RegistrarPagoModal({
 
         <Input
           label="Referencia (opcional)"
+          maxLength={100}
           value={reference}
           onChange={(e) => setReference(e.target.value)}
           placeholder="Ej. TRANS-89342"

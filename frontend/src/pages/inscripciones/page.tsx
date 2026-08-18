@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import MainLayout from '@/components/feature/MainLayout';
 import Stepper, { type Step } from '@/components/base/Stepper';
 import Card from '@/components/base/Card';
@@ -10,7 +10,7 @@ import Select from '@/components/base/Select';
 import Badge from '@/components/base/Badge';
 import { useToast } from '@/components/base/Toast';
 import { useSchoolContext } from '@/context/SchoolContext';
-import { submitEnrollment, type EnrollmentResult } from '@/api/enrollmentsApi';
+import { submitEnrollment, listEnrollments, deleteEnrollment, type EnrollmentResult, type EnrollmentSummary } from '@/api/enrollmentsApi';
 import * as parentsApi from '@/api/parentsApi';
 import * as settingsApi from '@/api/settingsApi';
 import { queryKeys } from '@/api/queryKeys';
@@ -30,11 +30,13 @@ import {
   assignError,
   validateBirthDate,
   validateEmail,
-  validateMaxLen,
+  validateOptionalName,
   validatePhone,
   validatePositiveNumber,
   validateRequiredName,
+  validateTextFree,
 } from '@/lib/validation/fields';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 const enrollmentSteps: Step[] = [
   { id: 'datos', label: 'Datos del Alumno', subtitle: 'Información personal', icon: 'ri-user-line' },
@@ -170,6 +172,7 @@ function formatCurrency(amount: number) {
 
 export default function Inscripciones() {
   const { showToast } = useToast();
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const school = useSchoolContext();
   const [step, setStep] = useState(0);
@@ -180,13 +183,13 @@ export default function Inscripciones() {
 
   const parentsQuery = useQuery({
     queryKey: queryKeys.parents.list({ forEnrollment: true }),
-    queryFn: () => parentsApi.listParents({ pageSize: 200 }),
+    queryFn: () => parentsApi.listParents({ pageSize: 100 }),
   });
   const parents = parentsQuery.data?.data ?? [];
 
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({ for: 'enrollment' }),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
   });
   const classrooms: Salon[] = classroomsQ.data ?? [];
 
@@ -198,6 +201,30 @@ export default function Inscripciones() {
     () => (conceptsQuery.data?.data ?? []).filter((c) => c.activo),
     [conceptsQuery.data]
   );
+
+  const draftsQuery = useQuery({
+    queryKey: [...queryKeys.enrollments.all, 'drafts', school.branchId],
+    queryFn: () => listEnrollments({ branchId: school.branchId, status: 'draft', pageSize: 20 }),
+    enabled: isGuid(school.branchId),
+  });
+  const drafts: EnrollmentSummary[] = draftsQuery.data?.data ?? [];
+  const [discardingId, setDiscardingId] = useState<string | null>(null);
+
+  const discardDraft = async (id: string) => {
+    setDiscardingId(id);
+    try {
+      const res = await deleteEnrollment(id);
+      if (!res.success) {
+        showToast(res.message || 'No se pudo descartar el borrador', 'error');
+        return;
+      }
+      showToast('Borrador descartado', 'success');
+      void draftsQuery.refetch();
+      void queryClient.invalidateQueries({ queryKey: queryKeys.enrollments.all });
+    } finally {
+      setDiscardingId(null);
+    }
+  };
 
   useEffect(() => {
     if (data.paymentConceptId || conceptos.length === 0) return;
@@ -255,13 +282,13 @@ export default function Inscripciones() {
     if (current === 0) {
       assignError(newErrors, 'nombre', validateRequiredName(data.nombre, 'El nombre'));
       assignError(newErrors, 'apellidoPaterno', validateRequiredName(data.apellidoPaterno, 'El apellido paterno'));
-      assignError(newErrors, 'apellidoMaterno', validateMaxLen(data.apellidoMaterno, FieldLimits.name, 'Apellido materno'));
+      assignError(newErrors, 'apellidoMaterno', validateOptionalName(data.apellidoMaterno, 'El apellido materno'));
       assignError(newErrors, 'fechaNacimiento', validateBirthDate(data.fechaNacimiento, true));
       assignError(newErrors, 'email', validateEmail(data.email, false));
       assignError(newErrors, 'telefono', validatePhone(data.telefono, false));
-      assignError(newErrors, 'direccion', validateMaxLen(data.direccion, FieldLimits.address, 'Dirección'));
-      assignError(newErrors, 'alergias', validateMaxLen(data.alergias, FieldLimits.allergies, 'Alergias'));
-      assignError(newErrors, 'notasMedicas', validateMaxLen(data.notasMedicas, FieldLimits.medicalNotes, 'Notas médicas'));
+      assignError(newErrors, 'direccion', validateTextFree(data.direccion, FieldLimits.address, 'Dirección'));
+      assignError(newErrors, 'alergias', validateTextFree(data.alergias, FieldLimits.allergies, 'Alergias'));
+      assignError(newErrors, 'notasMedicas', validateTextFree(data.notasMedicas, FieldLimits.medicalNotes, 'Notas médicas'));
       if (!data.genero) newErrors.genero = 'Selecciona el género';
     }
     if (current === 1) {
@@ -301,7 +328,10 @@ export default function Inscripciones() {
   const handleNext = () => {
     const newErrors = validateStep(step);
     setErrors(newErrors);
-    if (Object.keys(newErrors).length > 0) return;
+    if (Object.keys(newErrors).length > 0) {
+      afterValidationErrors(newErrors);
+      return;
+    }
     if (step < 4) setStep((s) => s + 1);
   };
 
@@ -309,7 +339,10 @@ export default function Inscripciones() {
     if (savingEnrollment) return;
     const newErrors = validateStep(4);
     setErrors(newErrors);
-    if (Object.keys(newErrors).length > 0) return;
+    if (Object.keys(newErrors).length > 0) {
+      afterValidationErrors(newErrors);
+      return;
+    }
     if (!contextReady) {
       showToast('Selecciona sucursal y ciclo escolar en el selector de contexto', 'error');
       return;
@@ -356,7 +389,7 @@ export default function Inscripciones() {
 
     setSavingEnrollment(true);
     try {
-      const lastName = `${data.apellidoPaterno} ${data.apellidoMaterno}`.trim();
+      const lastName = `${data.apellidoPaterno} ${data.apellidoMaterno}`.trim().slice(0, FieldLimits.name);
       const amount = Number(data.chargeAmount) || 0;
       const classroomId = resolveClassroomId(
         levelLabel,
@@ -401,21 +434,30 @@ export default function Inscripciones() {
           : { enabled: false, conceptName: '', conceptType: 'unico', grossAmount: 0 },
       });
 
-      if (!res.success || !res.data?.studentId) {
+      if (!res.data?.studentId) {
         showToast(friendlyApiError(res) || 'No se pudo completar la inscripción', 'error');
         return;
       }
 
       setResult(res.data);
-      if (res.data.warnings.length > 0) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.students.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.finance.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.enrollments.all });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.parents.all });
+      void draftsQuery.refetch();
+
+      if (res.data.status !== 'completed') {
+        showToast(res.data.message || 'Alumno creado; inscripción en borrador', 'info');
+        if (res.data.warnings.length > 0) {
+          showToast(res.data.warnings[0], 'info');
+        }
+      } else if (res.data.warnings.length > 0) {
         showToast(res.data.warnings[0], 'info');
         if (res.data.warnings.length > 1) {
           showToast(`${res.data.warnings.length - 1} aviso(s) más — revisa el resumen.`, 'info');
         }
-      } else if (res.data.status === 'completed') {
-        showToast('Inscripción completada correctamente', 'success');
       } else {
-        showToast(res.data.message || 'Alumno creado; inscripción en borrador', 'info');
+        showToast('Inscripción completada correctamente', 'success');
       }
     } finally {
       setSavingEnrollment(false);
@@ -541,6 +583,61 @@ export default function Inscripciones() {
           </p>
         </div>
 
+        {drafts.length > 0 && (
+          <Card padding="md" className="mb-6 border-amber-200 bg-amber-50/40">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h2 className="text-sm font-semibold text-foreground-900">Borradores pendientes</h2>
+                <p className="text-2xs text-foreground-500 mt-0.5">
+                  Inscripciones incompletas en esta sucursal. Puedes descartarlas o abrir el alumno si ya se creó.
+                </p>
+              </div>
+              <Badge variant="warning" size="sm">
+                {drafts.length}
+              </Badge>
+            </div>
+            <div className="space-y-2">
+              {drafts.map((d) => (
+                <div
+                  key={d.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200/80 bg-white px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground-800 truncate">
+                      {d.enrollmentNumber || d.id.slice(0, 8)}
+                    </p>
+                    <p className="text-2xs text-foreground-500">
+                      Paso {d.currentStep || 0} · {d.createdAt || '—'}
+                      {d.studentId ? ' · alumno creado' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {d.studentId && isGuid(d.studentId) && (
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        icon="ri-user-line"
+                        onClick={() => navigate(`/alumnos/${d.studentId}`)}
+                      >
+                        Ver alumno
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      icon="ri-delete-bin-line"
+                      loading={discardingId === d.id}
+                      onClick={() => void discardDraft(d.id)}
+                    >
+                      Descartar
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+
         <Stepper steps={enrollmentSteps} currentStep={step} className="mb-8" />
 
         <Card padding="lg">
@@ -548,17 +645,17 @@ export default function Inscripciones() {
             <div>
               <h3 className="text-sm font-semibold text-foreground-900 mb-5">Datos Personales del Alumno</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Input label="Nombre(s)" required maxLength={FieldLimits.name} value={data.nombre} onChange={(e) => update('nombre', e.target.value)} error={errors.nombre} placeholder="Ej. Carlos" />
-                <Input label="Apellido Paterno" required maxLength={FieldLimits.name} value={data.apellidoPaterno} onChange={(e) => update('apellidoPaterno', e.target.value)} error={errors.apellidoPaterno} placeholder="Ej. Ruiz" />
-                <Input label="Apellido Materno" maxLength={FieldLimits.name} value={data.apellidoMaterno} onChange={(e) => update('apellidoMaterno', e.target.value)} placeholder="Ej. Mendoza" />
+                <Input label="Nombre(s)" required autoComplete="given-name" maxLength={FieldLimits.name} value={data.nombre} onChange={(e) => update('nombre', e.target.value)} error={errors.nombre} placeholder="Ej. Carlos" />
+                <Input label="Apellido Paterno" required autoComplete="family-name" maxLength={FieldLimits.name} value={data.apellidoPaterno} onChange={(e) => update('apellidoPaterno', e.target.value)} error={errors.apellidoPaterno} placeholder="Ej. Ruiz" />
+                <Input label="Apellido Materno" autoComplete="family-name" maxLength={FieldLimits.name} value={data.apellidoMaterno} onChange={(e) => update('apellidoMaterno', e.target.value)} error={errors.apellidoMaterno} placeholder="Ej. Mendoza" />
                 <Input label="Fecha de Nacimiento" type="date" required value={data.fechaNacimiento} onChange={(e) => update('fechaNacimiento', e.target.value)} error={errors.fechaNacimiento} />
                 <Select label="Género" required options={[{ value: 'M', label: 'Masculino' }, { value: 'F', label: 'Femenino' }]} value={data.genero} onChange={(e) => update('genero', e.target.value)} error={errors.genero} placeholder="Seleccionar género" />
                 <Select label="Tipo de Sangre" options={tiposSangre} value={data.tipoSangre} onChange={(e) => update('tipoSangre', e.target.value)} placeholder="Seleccionar tipo" />
-                <Input label="Email" type="email" maxLength={FieldLimits.email} value={data.email} onChange={(e) => update('email', e.target.value)} error={errors.email} placeholder="alumno@email.com" />
-                <Input label="Teléfono" maxLength={FieldLimits.phone} value={data.telefono} onChange={(e) => update('telefono', e.target.value)} error={errors.telefono} placeholder="+52 55 0000 0000" />
+                <Input label="Email" type="email" autoComplete="email" maxLength={FieldLimits.email} value={data.email} onChange={(e) => update('email', e.target.value)} error={errors.email} placeholder="alumno@email.com" />
+                <Input label="Teléfono" type="tel" autoComplete="tel" maxLength={FieldLimits.phone} value={data.telefono} onChange={(e) => update('telefono', e.target.value)} error={errors.telefono} placeholder="+52 55 0000 0000" />
               </div>
               <div className="mt-4">
-                <Input label="Dirección" maxLength={FieldLimits.address} value={data.direccion} onChange={(e) => update('direccion', e.target.value)} error={errors.direccion} placeholder="Calle, Número, Colonia, Ciudad" />
+                <Input label="Dirección" autoComplete="street-address" maxLength={FieldLimits.address} value={data.direccion} onChange={(e) => update('direccion', e.target.value)} error={errors.direccion} placeholder="Calle, Número, Colonia, Ciudad" />
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 <Input label="Alergias" maxLength={FieldLimits.allergies} value={data.alergias} onChange={(e) => update('alergias', e.target.value)} error={errors.alergias} placeholder="Ej. Penicilina, Nuez..." />

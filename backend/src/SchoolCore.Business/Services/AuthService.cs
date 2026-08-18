@@ -9,6 +9,7 @@ using SchoolCore.Common.Exceptions;
 using SchoolCore.Common.Interaction;
 using SchoolCore.Common.Options;
 using SchoolCore.Common.Security;
+using SchoolCore.Common.Validation;
 using SchoolCore.DataAccess.Repositories;
 using SchoolCore.Models.Dtos.Auth;
 using SchoolCore.Models.Entities;
@@ -323,35 +324,9 @@ public sealed class AuthService : IAuthService
 
     private static void ValidatePasswordComplexity(string password)
     {
-        var errors = new List<string>();
-        if (string.IsNullOrWhiteSpace(password) || password.Length < MinPasswordLength)
-        {
-            errors.Add($"Password must be at least {MinPasswordLength} characters.");
-        }
-
-        if (!string.IsNullOrEmpty(password))
-        {
-            if (!password.Any(char.IsUpper))
-            {
-                errors.Add("Password must contain at least one uppercase letter.");
-            }
-
-            if (!password.Any(char.IsLower))
-            {
-                errors.Add("Password must contain at least one lowercase letter.");
-            }
-
-            if (!password.Any(char.IsDigit))
-            {
-                errors.Add("Password must contain at least one digit.");
-            }
-        }
-
-        if (errors.Count > 0)
-        {
-            errors.Insert(0, "AUTH_PASSWORD_COMPLEXITY");
-            throw AppException.BadRequest(InteractionMessages.Text("AUTH_PASSWORD_COMPLEXITY"), errors);
-        }
+        var err = FieldValidator.Password(password);
+        if (err is not null)
+            throw AppException.BadRequest(err);
     }
 
     private static string? NormalizeTenantCode(string? tenantCode) =>

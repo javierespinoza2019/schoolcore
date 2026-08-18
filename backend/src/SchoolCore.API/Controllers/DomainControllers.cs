@@ -175,6 +175,10 @@ public sealed class AcademicController : ControllerBase
     [HttpPost("enrollments/{id:guid}/complete")]
     public async Task<ActionResult<ApiResponse<EnrollmentDto>>> Complete(Guid id, [FromBody] CompleteEnrollmentRequest request, CancellationToken ct)
         => Ok(ApiResponse<EnrollmentDto>.Ok(await _service.CompleteEnrollmentAsync(id, request, ct)));
+
+    [HttpDelete("enrollments/{id:guid}")]
+    public async Task<ActionResult<ApiResponse>> DeleteEnrollment(Guid id, CancellationToken ct)
+    { await _service.DeleteEnrollmentAsync(id, ct); return Ok(ApiResponse.Ok("Enrollment deleted.")); }
 }
 
 [ApiController]

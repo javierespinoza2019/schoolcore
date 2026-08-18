@@ -24,6 +24,8 @@ public sealed class BranchDto
     public string? Area { get; set; }
     public string? Levels { get; set; }
     public string? OperationalStatus { get; set; }
+    /// <summary>Document GUID or http(s) URL. Not a data-URL.</summary>
+    public string? PhotoUrl { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -49,6 +51,8 @@ public sealed class BranchUpsertRequest
     public string? Area { get; set; }
     public string? Levels { get; set; }
     public string? OperationalStatus { get; set; }
+    /// <summary>Document GUID or http(s) URL. Not a data-URL.</summary>
+    public string? PhotoUrl { get; set; }
 }
 
 public sealed class SchoolCycleDto
@@ -224,6 +228,8 @@ public sealed class RoleDto
     public Guid RoleId { get; set; }
     public string RoleCode { get; set; } = string.Empty;
     public string RoleName { get; set; } = string.Empty;
+    /// <summary>Staff users with this role (active, not soft-deleted).</summary>
+    public int UserCount { get; set; }
 }
 
 public sealed class UserBranchDto

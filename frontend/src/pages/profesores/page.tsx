@@ -52,7 +52,21 @@ interface GrupoDetalle {
   alumnos: Student[];
 }
 
+function teacherMatchesSalon(
+  salon: Salon,
+  teacherId: string,
+  teacherName: string
+): boolean {
+  if (salon.teacherId && teacherId && salon.teacherId === teacherId) return true;
+  const assigned = (salon.profesorAsignado || '').trim();
+  if (!assigned || assigned === 'Sin asignar') return false;
+  if (teacherName && assigned === teacherName) return true;
+  if (teacherId && assigned === teacherId) return true;
+  return false;
+}
+
 function getGruposDelProfesor(
+  teacherId: string,
   nombreProfesor: string,
   classrooms: Salon[],
   studentsList: Student[]
@@ -60,7 +74,11 @@ function getGruposDelProfesor(
   const resultados: GrupoDetalle[] = [];
   for (const salon of classrooms) {
     if (salon.gruposAsignados && salon.gruposAsignados.length > 0) {
-      const gruposDelProfe = salon.gruposAsignados.filter((g) => g.profesor === nombreProfesor);
+      const gruposDelProfe = salon.gruposAsignados.filter(
+        (g) =>
+          g.profesor === nombreProfesor ||
+          (teacherId && g.profesor === teacherId)
+      );
       for (const grupo of gruposDelProfe) {
         const alumnosDelGrupo = studentsList.filter(
           (alumno) =>
@@ -72,7 +90,7 @@ function getGruposDelProfesor(
         );
         resultados.push({ salon, grupoEspecifico: grupo, alumnos: alumnosDelGrupo });
       }
-    } else if (salon.profesorAsignado === nombreProfesor) {
+    } else if (teacherMatchesSalon(salon, teacherId, nombreProfesor)) {
       const alumnosDelGrupo = studentsList.filter(
         (alumno) =>
           alumno.level === salon.nivel &&
@@ -88,7 +106,7 @@ function getGruposDelProfesor(
           grado: salon.grado,
           nivel: salon.nivel,
           horario: salon.horarioClase,
-          profesor: salon.profesorAsignado,
+          profesor: nombreProfesor || salon.profesorAsignado,
           ocupados: alumnosDelGrupo.length,
         },
         alumnos: alumnosDelGrupo,
@@ -137,12 +155,12 @@ export default function Profesores() {
   const [studentsList, setStudentsList] = useState<Student[]>([]);
   const teachersQ = useApiResource({
     queryKey: queryKeys.teachers.list({}),
-    queryFn: () => teachersApi.listTeachers({ pageSize: 200 }),
+    queryFn: () => teachersApi.listTeachers({ pageSize: 100 }),
     errorToast: 'Error al cargar profesores',
   });
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({ for: 'profesores' }),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
     errorToast: 'Error al cargar salones',
   });
   const studentsQ = useApiResource({
@@ -230,7 +248,7 @@ export default function Profesores() {
 
   const quickViewGrupos = useMemo(() => {
     if (!quickViewProf) return [];
-    return getGruposDelProfesor(quickViewProf.nombre, classrooms, studentsList);
+    return getGruposDelProfesor(String(quickViewProf.id), quickViewProf.nombre, classrooms, studentsList);
   }, [quickViewProf, classrooms, studentsList]);
 
   const allIdsOnPage = useMemo(() => new Set(paginated.map((p) => String(p.id))), [paginated]);
@@ -275,6 +293,7 @@ export default function Profesores() {
 
   const invalidateTeachers = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.teachers.all });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.classrooms.all });
   };
 
   const handleBulkDelete = async () => {
@@ -293,13 +312,13 @@ export default function Profesores() {
   };
 
   const kpis = useMemo(() => ({
-    total: data.length,
+    total: teachersQ.totalCount ?? data.length,
     activos: data.filter((p) => p.estado === 'Activo').length,
     nomina: data.filter((p) => p.tipoPago === 'Nómina').length,
     honorarios: data.filter((p) => p.tipoPago === 'Honorarios').length,
     nominaTotal: data.filter((p) => p.tipoPago === 'Nómina').reduce((acc, p) => acc + p.salarioMensual, 0),
     honorariosTotal: data.filter((p) => p.tipoPago === 'Honorarios').reduce((acc, p) => acc + p.salarioMensual, 0),
-  }), [data]);
+  }), [data, teachersQ.totalCount]);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -450,8 +469,8 @@ export default function Profesores() {
             className="w-9 h-9 rounded-full object-cover flex-shrink-0 border border-secondary-200"
           />
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground-900 truncate">{row.nombre}</p>
-            <p className="text-xs text-foreground-500 truncate">{row.email}</p>
+            <p className="text-sm font-medium text-foreground-900 truncate" title={row.nombre}>{row.nombre}</p>
+            <p className="text-xs text-foreground-500 truncate" title={row.email}>{row.email}</p>
           </div>
         </div>
       ),
@@ -470,7 +489,7 @@ export default function Profesores() {
       width: '100px',
       align: 'center',
       render: (row) => {
-        const grupos = getGruposDelProfesor(row.nombre, classrooms, studentsList);
+        const grupos = getGruposDelProfesor(String(row.id), row.nombre, classrooms, studentsList);
         const totalAlumnos = grupos.reduce((acc, g) => acc + g.alumnos.length, 0);
         return (
           <div className="flex flex-col items-center gap-0.5">
@@ -880,6 +899,11 @@ export default function Profesores() {
           onSave={handleSave}
           saving={saving}
           profesor={editingProf}
+          linkedClassroomCount={
+            editingProf
+              ? getGruposDelProfesor(String(editingProf.id), editingProf.nombre, classrooms, studentsList).length
+              : 0
+          }
         />
 
         <DeleteConfirmModal

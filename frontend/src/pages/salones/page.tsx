@@ -102,6 +102,15 @@ function matchBranch(alumno: Student, salon: Salon): boolean {
 }
 
 function getAlumnosDelSalon(salon: Salon, studentsList: Student[]): Student[] {
+  const byClassroomId = studentsList.filter(
+    (alumno) =>
+      alumno.status === 'active' &&
+      salon.id &&
+      alumno.classroomId &&
+      alumno.classroomId === salon.id
+  );
+  if (byClassroomId.length > 0) return byClassroomId;
+
   if (salon.gruposAsignados && salon.gruposAsignados.length > 0) {
     const combos = salon.gruposAsignados.filter((g) => g.grupo !== 'Todos');
     return studentsList.filter(
@@ -126,6 +135,16 @@ function getAlumnosDelSalon(salon: Salon, studentsList: Student[]): Student[] {
 }
 
 function countAlumnosGrupo(salon: Salon, grupo: string, grado: string, nivel: string, studentsList: Student[]): number {
+  const linked = studentsList.filter(
+    (alumno) =>
+      alumno.status === 'active' &&
+      salon.id &&
+      alumno.classroomId === salon.id &&
+      alumno.level === nivel &&
+      alumno.group === grupo &&
+      (alumno.grade === grado || grado === 'Todos')
+  );
+  if (linked.length > 0) return linked.length;
   return studentsList.filter(
     (alumno) =>
       matchBranch(alumno, salon) &&
@@ -180,7 +199,7 @@ export default function Salones() {
   const [teachersList, setTeachersList] = useState<Profesor[]>([]);
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({}),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 200 }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
     errorToast: 'Error al cargar salones',
   });
   const studentsQ = useApiResource({
@@ -190,7 +209,7 @@ export default function Salones() {
   });
   const teachersQ = useApiResource({
     queryKey: queryKeys.teachers.list({ for: 'salones' }),
-    queryFn: () => teachersApi.listTeachers({ pageSize: 200 }),
+    queryFn: () => teachersApi.listTeachers({ pageSize: 100 }),
     errorToast: 'Error al cargar profesores',
   });
   useEffect(() => {
@@ -303,14 +322,14 @@ export default function Salones() {
     });
     const ocupadosTotal = Array.from(ocupadosMapData.values()).reduce((a, b) => a + b, 0);
     return {
-      total: data.length,
+      total: classroomsQ.totalCount ?? data.length,
       disponibles: data.filter((s) => s.estado === 'Disponible').length,
       llenos: data.filter((s) => s.estado === 'Lleno').length,
       mantenimiento: data.filter((s) => s.estado === 'Mantenimiento').length,
       capacidadTotal: data.reduce((acc, s) => acc + s.capacidad, 0),
       ocupadosTotal,
     };
-  }, [data, studentsList]);
+  }, [data, studentsList, classroomsQ.totalCount]);
 
   const selectedCount = selectedIds.size;
 
@@ -339,25 +358,70 @@ export default function Salones() {
     setBulkAction('');
   };
 
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
     if (selectedCount === 0) return;
     setDeleteLoading(true);
-    const ids = new Set(selectedIds);
-    setTimeout(() => {
-      setData((prev) => prev.filter((s) => !ids.has(s.id)));
-      showToast(`${ids.size} salón(es) eliminado(s) correctamente`, 'success');
-      setDeleteLoading(false);
+    const ids = [...selectedIds];
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (const id of ids) {
+        if (!isGuid(id)) {
+          fail += 1;
+          continue;
+        }
+        const res = await classroomsApi.deleteClassroom(id);
+        if (res.success) ok += 1;
+        else fail += 1;
+      }
+      if (ok > 0) {
+        showToast(
+          `${ok} salón(es) eliminado(s)${fail ? ` (${fail} fallaron)` : ''}`,
+          fail ? 'info' : 'success'
+        );
+        invalidateClassrooms();
+      } else {
+        showToast('No se pudo eliminar ningún salón', 'error');
+      }
       clearSelection();
-    }, 500);
+    } finally {
+      setDeleteLoading(false);
+    }
   };
 
-  const handleBulkStatusChange = (estado: Salon['estado']) => {
+  const handleBulkStatusChange = async (estado: Salon['estado']) => {
     if (selectedCount === 0) return;
-    setData((prev) =>
-      prev.map((s) => (selectedIds.has(s.id) ? { ...s, estado } : s))
-    );
-    const labels: Record<string, string> = { Disponible: 'disponible(s)', Lleno: 'lleno(s)', Mantenimiento: 'en mantenimiento' };
-    showToast(`${selectedCount} salón(es) marcado(s) como ${labels[estado] || estado}`, 'success');
+    const ids = [...selectedIds];
+    let ok = 0;
+    let fail = 0;
+    for (const id of ids) {
+      const salon = data.find((s) => s.id === id);
+      if (!salon || !isGuid(id)) {
+        fail += 1;
+        continue;
+      }
+      const res = await classroomsApi.updateClassroom(id, {
+        ...salon,
+        estado,
+        branchId: salon.branchId,
+      });
+      if (res.success) ok += 1;
+      else fail += 1;
+    }
+    const labels: Record<string, string> = {
+      Disponible: 'disponible(s)',
+      Lleno: 'lleno(s)',
+      Mantenimiento: 'en mantenimiento',
+    };
+    if (ok > 0) {
+      showToast(
+        `${ok} salón(es) marcado(s) como ${labels[estado] || estado}${fail ? ` (${fail} fallaron)` : ''}`,
+        fail ? 'info' : 'success'
+      );
+      invalidateClassrooms();
+    } else {
+      showToast('No se pudo actualizar ningún salón', 'error');
+    }
     clearSelection();
   };
 
@@ -398,6 +462,7 @@ export default function Salones() {
 
   const invalidateClassrooms = () => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.classrooms.all });
+    void queryClient.invalidateQueries({ queryKey: queryKeys.teachers.all });
   };
 
   const confirmDelete = async () => {
@@ -754,15 +819,15 @@ export default function Salones() {
               {selectedCount} seleccionado{selectedCount !== 1 ? 's' : ''}
             </span>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <Button variant="outline" size="sm" onClick={() => handleBulkStatusChange('Disponible')}>
+              <Button variant="outline" size="sm" onClick={() => void handleBulkStatusChange('Disponible')}>
                 <i className="ri-checkbox-circle-line text-sm mr-1" /> Disponible
               </Button>
-              <Button variant="outline" size="sm" onClick={() => handleBulkStatusChange('Mantenimiento')}>
+              <Button variant="outline" size="sm" onClick={() => void handleBulkStatusChange('Mantenimiento')}>
                 <i className="ri-tools-line text-sm mr-1" /> Mantenimiento
               </Button>
               <Button
                 variant="outline" size="sm"
-                onClick={handleBulkDelete}
+                onClick={() => void handleBulkDelete()}
                 loading={deleteLoading}
               >
                 <i className="ri-delete-bin-line text-sm mr-1" /> Eliminar

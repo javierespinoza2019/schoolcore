@@ -11,7 +11,8 @@ import { useSchoolContext } from '@/context/SchoolContext';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
 import { friendlyApiError } from '@/lib/interaction/messages';
-import { validateMaxLen } from '@/lib/validation/fields';
+import { FieldLimits, validateField } from '@/lib/validation/fields';
+import { scrollToFirstFormError } from '@/lib/ui/scrollToFirstError';
 
 interface ReversePaymentModalProps {
   open: boolean;
@@ -59,13 +60,10 @@ export default function ReversePaymentModal({
   const handleSubmit = async () => {
     if (saving || !payment) return;
     const trimmed = reason.trim();
-    if (trimmed.length < 5) {
-      setError('Indica el motivo del reverso (mínimo 5 caracteres).');
-      return;
-    }
-    const lenErr = validateMaxLen(trimmed, 500, 'Motivo');
-    if (lenErr) {
-      setError(lenErr);
+    const reasonErr = validateField('finance.reverseReason', trimmed, { required: true, label: 'Motivo' });
+    if (reasonErr) {
+      setError(reasonErr);
+      scrollToFirstFormError();
       return;
     }
     setSaving(true);
@@ -146,7 +144,7 @@ export default function ReversePaymentModal({
               setError('');
             }}
             error={error}
-            maxLength={500}
+            maxLength={FieldLimits.reverseReason}
             placeholder="Ej. Cobro duplicado / error de concepto"
           />
         </div>

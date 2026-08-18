@@ -97,4 +97,6 @@ export interface FetchResult<T> {
   data: T;
   source: DataSource;
   message?: string | null;
+  /** Total server-side cuando la API pagina (PagedResult.totalCount). */
+  totalCount?: number;
 }

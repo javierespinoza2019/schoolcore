@@ -4,8 +4,9 @@ import Modal from '@/components/base/Modal';
 import Button from '@/components/base/Button';
 import Input from '@/components/base/Input';
 import Select from '@/components/base/Select';
-import type { Student, StudentPayment, StudentTimelineEvent } from '@/mocks/alumnos';
+import type { Student, StudentPayment } from '@/mocks/alumnos';
 import {
+  isOpenChargeStatus,
   listCharges,
   registerPayment,
   type ChargeSummary,
@@ -18,6 +19,7 @@ import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
 import { friendlyApiError } from '@/lib/interaction/messages';
 import { newPaymentIdempotencyKey } from '@/lib/finance/idempotency';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface RegistrarPagoModalProps {
   open: boolean;
@@ -62,14 +64,18 @@ export default function RegistrarPagoModal({
   });
 
   const chargesQ = useQuery({
-    queryKey: queryKeys.finance.charges({ studentId: student.id, status: 'pending', branchId }),
-    queryFn: () =>
-      listCharges({
+    queryKey: queryKeys.finance.charges({ studentId: student.id, status: 'open', branchId }),
+    queryFn: async () => {
+      const res = await listCharges({
         studentId: student.id,
         branchId,
-        status: 'pending',
         pageSize: 100,
-      }),
+      });
+      return {
+        ...res,
+        data: (res.data ?? []).filter((c) => isOpenChargeStatus(c.status)),
+      };
+    },
     enabled: open && isGuid(student.id),
   });
 
@@ -108,7 +114,10 @@ export default function RegistrarPagoModal({
     if (!isGuid(paymentMethodId)) errs.paymentMethodId = 'Selecciona un método';
     if (!openSession?.id) errs.session = 'Abre caja en /caja antes de cobrar';
     setErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    if (Object.keys(errs).length > 0) {
+      afterValidationErrors(errs);
+      return;
+    }
     if (!selectedCharge) return;
 
     setSaving(true);
@@ -140,23 +149,11 @@ export default function RegistrarPagoModal({
       receipt: res.data.folio || '',
     };
 
-    const timeline: StudentTimelineEvent = {
-      id: `TL-${Date.now()}`,
-      date: payment.date,
-      title: `Pago: ${selectedCharge.conceptName}`,
-      description: `Folio ${payment.receipt} · ${formatMoney(payment.amount)}`,
-      icon: 'ri-money-dollar-circle-line',
-      iconBg: 'bg-emerald-100',
-      iconColor: 'text-emerald-600',
-      badge: 'Pago',
-    };
-
     const updated: Student = {
       ...student,
       balance: Math.max(0, (student.balance || 0) - selectedCharge.netAmount),
       lastPayment: payment.date,
       payments: [payment, ...(student.payments || [])],
-      timeline: [timeline, ...(student.timeline || [])],
     };
 
     showToast(`Pago registrado · Folio ${payment.receipt || '—'}`, 'success');

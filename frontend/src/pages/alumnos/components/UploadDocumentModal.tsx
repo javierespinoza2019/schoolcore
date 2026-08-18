@@ -11,6 +11,7 @@ import {
   documentExtensionError,
   documentSizeError,
 } from '@/lib/documents/rules';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface UploadDocumentModalProps {
   open: boolean;
@@ -122,7 +123,11 @@ export default function UploadDocumentModal({ open, onClose, student, onDocument
     if (!fileName) newErrors.file = 'Selecciona un archivo para subir';
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (Object.keys(newErrors).length > 0) {
+      afterValidationErrors(newErrors);
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async () => {
@@ -137,23 +142,9 @@ export default function UploadDocumentModal({ open, onClose, student, onDocument
         return;
       }
 
-      const today = new Date().toISOString().split('T')[0];
       const updatedStudent: Student = {
         ...student,
         documents: [res.data, ...student.documents],
-        timeline: [
-          {
-            id: `TL-${Date.now()}`,
-            date: `${today} ${String(new Date().getHours()).padStart(2, '0')}:${String(new Date().getMinutes()).padStart(2, '0')}`,
-            title: `Documento "${finalName}" subido`,
-            description: `Se subió el documento "${finalName}" (${docType}) al expediente del alumno`,
-            icon: 'ri-file-upload-line',
-            iconBg: 'bg-primary-100',
-            iconColor: 'text-primary-600',
-            badge: 'Documento',
-          },
-          ...student.timeline,
-        ],
       };
 
       onDocumentUploaded(updatedStudent);

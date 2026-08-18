@@ -14,6 +14,7 @@ BEGIN
     FROM dbo.Payment p
     LEFT JOIN dbo.PaymentMethod pm ON pm.Id=p.PaymentMethodId
     WHERE p.TenantId=@TenantId AND p.IsDeleted=0
+      AND ISNULL(p.Status, N'posted') = N'posted'
       AND (@BranchId IS NULL OR p.BranchId=@BranchId)
       AND p.PaidAt >= @FromDate AND p.PaidAt < DATEADD(DAY, 1, @ToDate)
     GROUP BY pm.Name

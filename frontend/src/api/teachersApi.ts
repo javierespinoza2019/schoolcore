@@ -1,5 +1,5 @@
 import { apiClient } from '@/api/apiClient';
-import { buildQuery, fetchOrFallback, isGuid, unwrapList } from '@/api/helpers';
+import { buildQuery, fetchOrFallback, isGuid, unwrapList, unwrapTotalCount } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
 import type { Profesor } from '@/mocks/profesores';
 import { profesoresData } from '@/mocks/profesores';
@@ -109,14 +109,14 @@ function toStoredPhotoUrl(value?: string | null): string | null {
   return null;
 }
 
-/** POST /documents — foto del profesor (entityType=teacher). Devuelve el id del documento. */
+/** POST /documents — foto del profesor (entityType distinto al expediente). */
 export async function uploadTeacherPhoto(
   teacherId: string,
   file: File
 ): Promise<ApiResponse<string>> {
   const form = new FormData();
   form.append('file', file);
-  form.append('entityType', 'teacher');
+  form.append('entityType', 'teacher-photo');
   form.append('entityId', teacherId);
   const res = await apiClient<Record<string, unknown>>('/documents', { method: 'POST', body: form });
   if (res.success && res.data) {
@@ -139,8 +139,14 @@ export async function listTeachers(params: TeacherListParams = {}): Promise<Fetc
     () => profesoresData
   );
   const items = unwrapList(result.data).map((x) => normalizeTeacher(x));
-  if (result.source === 'api') return { data: items, source: 'api', message: result.message };
-  return { data: items.length ? items : profesoresData, source: 'fallback', message: result.message };
+  const totalCount = unwrapTotalCount(result.data, items.length);
+  if (result.source === 'api') return { data: items, totalCount, source: 'api', message: result.message };
+  return {
+    data: items.length ? items : profesoresData,
+    totalCount: items.length ? totalCount : profesoresData.length,
+    source: 'fallback',
+    message: result.message,
+  };
 }
 
 export async function getTeacher(id: string | number): Promise<ApiResponse<Profesor>> {

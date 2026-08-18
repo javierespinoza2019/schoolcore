@@ -14,7 +14,7 @@ BEGIN
       AND (@Search IS NULL OR Name LIKE N'%' + @Search + N'%' OR Code LIKE N'%' + @Search + N'%');
     SELECT Id, TenantId, Name, Code, IsActive, Address, City, [State], PostalCode, Phone, Email, TimeZoneId,
            DirectorName, DirectorEmail, DirectorPhone, Capacity, OpenedAt, Area, Levels, OperationalStatus,
-           CreatedAt, UpdatedAt
+           PhotoUrl, CreatedAt, UpdatedAt
     FROM dbo.Branch WHERE TenantId = @TenantId AND IsDeleted = 0
       AND (@Search IS NULL OR Name LIKE N'%' + @Search + N'%' OR Code LIKE N'%' + @Search + N'%')
     ORDER BY Name OFFSET (@Page - 1) * @PageSize ROWS FETCH NEXT @PageSize ROWS ONLY;

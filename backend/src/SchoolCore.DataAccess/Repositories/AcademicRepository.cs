@@ -25,6 +25,7 @@ public interface IAcademicRepository
     Task<EnrollmentDto> CreateEnrollmentAsync(Guid tenantId, Guid id, CreateEnrollmentRequest request, Guid? userId, CancellationToken ct = default);
     Task<EnrollmentDto> SaveEnrollmentWizardAsync(Guid tenantId, Guid id, SaveEnrollmentWizardRequest request, Guid? userId, CancellationToken ct = default);
     Task<EnrollmentDto> CompleteEnrollmentAsync(Guid tenantId, Guid id, Guid studentId, Guid? userId, CancellationToken ct = default);
+    Task SoftDeleteEnrollmentAsync(Guid tenantId, Guid id, Guid? userId, CancellationToken ct = default);
 }
 
 public sealed class AcademicRepository : IAcademicRepository
@@ -198,5 +199,11 @@ public sealed class AcademicRepository : IAcademicRepository
             StudentId = studentId,
             UpdatedBy = userId
         }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+    }
+
+    public async Task SoftDeleteEnrollmentAsync(Guid tenantId, Guid id, Guid? userId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        await conn.ExecuteAsync(new CommandDefinition("sp_Enrollment_SoftDelete", new { TenantId = tenantId, Id = id, UpdatedBy = userId }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
     }
 }

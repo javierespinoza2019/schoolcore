@@ -7,10 +7,10 @@ GO
 
 CREATE OR ALTER PROCEDURE dbo.sp_StudentGuardian_ListByStudent @TenantId UNIQUEIDENTIFIER, @StudentId UNIQUEIDENTIFIER
 AS BEGIN SET NOCOUNT ON;
-    SELECT g.Id, g.FirstName, g.LastName, g.Email, g.Phone, g.Occupation, g.Address, g.Status,
+    SELECT g.Id, g.FirstName, g.LastName, g.Email, g.Phone, g.Occupation, g.Address, g.Status, g.PhotoUrl,
            sg.Relationship, sg.IsPrimary
     FROM dbo.StudentGuardian sg
-    INNER JOIN dbo.Guardian g ON g.Id = sg.GuardianId AND g.IsDeleted=0
+    INNER JOIN dbo.Guardian g ON g.Id = sg.GuardianId AND g.TenantId = sg.TenantId AND g.IsDeleted=0
     WHERE sg.TenantId=@TenantId AND sg.StudentId=@StudentId;
 END
 GO

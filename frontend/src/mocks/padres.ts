@@ -12,6 +12,8 @@ export interface Parent {
   childrenIds: string[];
   childrenNames: string[];
   createdAt: string;
+  /** Document GUID or http(s) URL. */
+  photo?: string;
 }
 
 export const parents: Parent[] = [

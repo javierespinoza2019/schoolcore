@@ -152,6 +152,7 @@ public sealed class PeopleRepository : IPeopleRepository
             request.Occupation,
             request.Address,
             request.Status,
+            request.PhotoUrl,
             CreatedBy = userId
         }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
     }
@@ -170,6 +171,7 @@ public sealed class PeopleRepository : IPeopleRepository
             request.Occupation,
             request.Address,
             request.Status,
+            request.PhotoUrl,
             UpdatedBy = userId
         }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
     }

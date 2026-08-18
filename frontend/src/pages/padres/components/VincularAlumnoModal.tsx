@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import Modal from '@/components/base/Modal';
 import Button from '@/components/base/Button';
 import Input from '@/components/base/Input';
+import Select from '@/components/base/Select';
 import Badge from '@/components/base/Badge';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import type { Student } from '@/mocks/alumnos';
@@ -12,7 +13,7 @@ import { queryKeys } from '@/api/queryKeys';
 interface VincularAlumnoModalProps {
   open: boolean;
   onClose: () => void;
-  onVincular: (alumnoId: string) => void;
+  onVincular: (alumnoId: string, relationship: string, isPrimary: boolean) => void;
   parentName: string;
   alreadyLinkedIds: string[];
   linking?: boolean;
@@ -39,11 +40,13 @@ export default function VincularAlumnoModal({
 }: VincularAlumnoModalProps) {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState<string>('');
+  const [relationship, setRelationship] = useState('padre');
+  const [isPrimary, setIsPrimary] = useState(false);
 
   const studentsQ = useQuery({
-    queryKey: queryKeys.students.list({ pageSize: 200, forVincular: true }),
+    queryKey: queryKeys.students.list({ pageSize: 100, forVincular: true }),
     queryFn: async () => {
-      const res = await studentsApi.listStudents({ pageSize: 200 });
+      const res = await studentsApi.listStudents({ pageSize: 100 });
       return res.data ?? [];
     },
     enabled: open,
@@ -54,6 +57,8 @@ export default function VincularAlumnoModal({
   useEffect(() => {
     setSearch('');
     setSelectedId('');
+    setRelationship('padre');
+    setIsPrimary(false);
   }, [open]);
 
   const availableStudents = useMemo(
@@ -76,7 +81,7 @@ export default function VincularAlumnoModal({
 
   const handleVincular = () => {
     if (!selectedId || linking) return;
-    onVincular(selectedId);
+    onVincular(selectedId, relationship, isPrimary);
   };
 
   return (
@@ -114,6 +119,30 @@ export default function VincularAlumnoModal({
             setSelectedId('');
           }}
         />
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select
+            label="Parentesco"
+            options={[
+              { value: 'padre', label: 'Padre' },
+              { value: 'madre', label: 'Madre' },
+              { value: 'tutor', label: 'Tutor legal' },
+              { value: 'abuelo', label: 'Abuelo/a' },
+              { value: 'otro', label: 'Otro' },
+            ]}
+            value={relationship}
+            onChange={(e) => setRelationship(e.target.value)}
+          />
+          <label className="flex items-center gap-2 text-sm text-foreground-700 pt-6 cursor-pointer">
+            <input
+              type="checkbox"
+              className="accent-primary-500"
+              checked={isPrimary}
+              onChange={(e) => setIsPrimary(e.target.checked)}
+            />
+            Tutor primario
+          </label>
+        </div>
 
         {studentsQ.isPending ? (
           <div className="flex flex-col items-center justify-center py-8 text-foreground-400">

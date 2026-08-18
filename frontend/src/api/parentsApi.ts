@@ -1,5 +1,5 @@
 import { apiClient } from '@/api/apiClient';
-import { buildQuery, fetchOrFallback, isGuid, unwrapList } from '@/api/helpers';
+import { buildQuery, fetchOrFallback, isGuid, unwrapList, unwrapTotalCount } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
 import type { Parent } from '@/mocks/padres';
 import { parents as mockParents } from '@/mocks/padres';
@@ -37,6 +37,7 @@ function normalizeParent(raw: Record<string, unknown>): Parent {
     childrenIds,
     childrenNames,
     createdAt: String(raw.createdAt ?? '').slice(0, 10),
+    photo: String(raw.photoUrl ?? raw.photo ?? ''),
   };
 }
 
@@ -75,6 +76,8 @@ export function normalizeLinkedStudent(raw: Record<string, unknown>): Student {
     documents: [],
     timeline: [],
     payments: [],
+    relationship: String(raw.relationship ?? ''),
+    isPrimary: Boolean(raw.isPrimary),
   };
 }
 
@@ -87,7 +90,33 @@ function toGuardianUpsert(payload: Partial<Parent>) {
     occupation: (payload as { occupation?: string }).occupation,
     address: (payload as { address?: string }).address,
     status: payload.status ?? 'active',
+    photoUrl: toStoredPhotoUrl(payload.photo),
   };
+}
+
+/** Solo GUID de documento o http(s). Nunca data URL. */
+function toStoredPhotoUrl(value?: string | null): string | null {
+  const s = (value ?? '').trim();
+  if (!s || s.startsWith('data:')) return null;
+  if (isGuid(s) || s.startsWith('http://') || s.startsWith('https://')) return s;
+  return null;
+}
+
+/** POST /documents — foto del tutor (entityType distinto al expediente). */
+export async function uploadParentPhoto(
+  parentId: string,
+  file: File
+): Promise<ApiResponse<string>> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('entityType', 'guardian-photo');
+  form.append('entityId', parentId);
+  const res = await apiClient<Record<string, unknown>>('/documents', { method: 'POST', body: form });
+  if (res.success && res.data) {
+    const id = String(res.data.id ?? '');
+    return { ...res, data: isGuid(id) ? id : null };
+  }
+  return { ...res, data: null };
 }
 
 /** GET /guardians (alias UI: parents) */
@@ -102,8 +131,14 @@ export async function listParents(params: ParentListParams = {}): Promise<FetchR
     () => mockParents as unknown as Record<string, unknown>[]
   );
   const items = unwrapList(result.data).map((x) => normalizeParent(x as Record<string, unknown>));
-  if (result.source === 'api') return { data: items, source: 'api', message: result.message };
-  return { data: items.length ? items : mockParents, source: 'fallback', message: result.message };
+  const totalCount = unwrapTotalCount(result.data, items.length);
+  if (result.source === 'api') return { data: items, totalCount, source: 'api', message: result.message };
+  return {
+    data: items.length ? items : mockParents,
+    totalCount: items.length ? totalCount : mockParents.length,
+    source: 'fallback',
+    message: result.message,
+  };
 }
 
 export async function getParent(id: string): Promise<ApiResponse<Parent>> {
@@ -152,14 +187,15 @@ export async function deleteParent(id: string): Promise<ApiResponse<null>> {
 export async function linkStudent(
   parentId: string,
   studentId: string,
-  relationship?: string
+  relationship?: string,
+  isPrimary?: boolean
 ): Promise<ApiResponse<null>> {
   return apiClient<null>(`/students/${studentId}/guardians`, {
     method: 'POST',
     body: {
       guardianId: parentId,
-      relationship: relationship ?? 'padre',
-      isPrimary: false,
+      relationship: relationship?.trim() || 'padre',
+      isPrimary: Boolean(isPrimary),
     },
   });
 }

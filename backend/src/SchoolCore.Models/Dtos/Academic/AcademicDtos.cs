@@ -82,7 +82,7 @@ public sealed class ClassroomUpsertRequest
     public string? Grade { get; set; }
     public string? GroupCode { get; set; }
     public int Capacity { get; set; }
-    public int Occupied { get; set; }
+    public int? Occupied { get; set; }
     public string? RoomType { get; set; }
     public string? Building { get; set; }
     public int? FloorNumber { get; set; }

@@ -567,7 +567,7 @@ export default function Caja() {
             <Card padding="sm">
               <span className="text-2xs text-foreground-500">Transacciones</span>
               <p className="text-sm font-bold text-foreground-900">
-                {corteSeleccionado?.transacciones ?? movsCorte.length}
+                {corteSeleccionado?.transacciones || movsCorte.length}
               </p>
             </Card>
             <Card padding="sm">

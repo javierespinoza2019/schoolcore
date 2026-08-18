@@ -159,6 +159,13 @@ public sealed class OrganizationController : ControllerBase
     public async Task<ActionResult<ApiResponse<IReadOnlyList<RoleDto>>>> ListRoles(CancellationToken ct)
         => Ok(ApiResponse<IReadOnlyList<RoleDto>>.Ok(await _service.ListRolesAsync(ct)));
 
+    /// <summary>
+    /// Compat: FE antiguo pedía /api/settings/notification-settings. MVP sin persistencia → lista vacía.
+    /// </summary>
+    [HttpGet("settings/notification-settings")]
+    public ActionResult<ApiResponse<object[]>> ListNotificationSettingsCompat()
+        => Ok(ApiResponse<object[]>.Ok(Array.Empty<object>()));
+
     [HttpGet("email-templates")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<EmailTemplateDto>>>> ListTemplates(CancellationToken ct)
         => Ok(ApiResponse<IReadOnlyList<EmailTemplateDto>>.Ok(await _service.ListEmailTemplatesAsync(ct)));

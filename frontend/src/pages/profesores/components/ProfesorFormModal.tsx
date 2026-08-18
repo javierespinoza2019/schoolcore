@@ -18,10 +18,11 @@ import {
   FieldLimits,
   assignError,
   validateEmail,
-  validateMaxLen,
   validatePhone,
   validateRequiredName,
+  validateTextFree,
 } from '@/lib/validation/fields';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 interface ProfesorFormModalProps {
   open: boolean;
@@ -29,6 +30,8 @@ interface ProfesorFormModalProps {
   onSave: (data: ProfesorFormData) => void;
   profesor?: Profesor | null;
   saving?: boolean;
+  /** Salones vinculados (por teacherId); no usar profesor.salones mock vacío. */
+  linkedClassroomCount?: number;
 }
 
 export interface ProfesorFormData {
@@ -72,7 +75,14 @@ function splitNombre(nombreCompleto: string): { firstName: string; lastName: str
   };
 }
 
-export default function ProfesorFormModal({ open, onClose, onSave, profesor, saving = false }: ProfesorFormModalProps) {
+export default function ProfesorFormModal({
+  open,
+  onClose,
+  onSave,
+  profesor,
+  saving = false,
+  linkedClassroomCount,
+}: ProfesorFormModalProps) {
   const [form, setForm] = useState<ProfesorFormData>(emptyForm);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [photoPreview, setPhotoPreview] = useState<string>('');
@@ -203,30 +213,30 @@ export default function ProfesorFormModal({ open, onClose, onSave, profesor, sav
 
     assignError(newErrors, 'firstName', validateRequiredName(form.firstName, 'El nombre'));
     assignError(newErrors, 'lastName', validateRequiredName(form.lastName, 'Los apellidos'));
-    assignError(newErrors, 'email', validateEmail(form.email, true));
-    assignError(newErrors, 'telefono', validatePhone(form.telefono, true));
-
-    if (!form.especialidad.trim()) newErrors.especialidad = 'La especialidad es obligatoria';
-    assignError(newErrors, 'especialidad', validateMaxLen(form.especialidad, FieldLimits.specialty, 'Especialidad'));
+    assignError(newErrors, 'email', validateEmail(form.email, false));
+    assignError(newErrors, 'telefono', validatePhone(form.telefono, false));
+    assignError(newErrors, 'especialidad', validateTextFree(form.especialidad, FieldLimits.specialty, 'Especialidad', false));
+    assignError(newErrors, 'horario', validateTextFree(form.horario, FieldLimits.schedule, 'Horario', false));
 
     if (!form.salarioMensual.trim()) newErrors.salarioMensual = 'El salario es obligatorio';
     else if (isNaN(Number(form.salarioMensual)) || Number(form.salarioMensual) <= 0) newErrors.salarioMensual = 'Ingresa un monto válido mayor a 0';
-
-    if (!form.horario.trim()) newErrors.horario = 'El horario es obligatorio';
-    assignError(newErrors, 'horario', validateMaxLen(form.horario, FieldLimits.schedule, 'Horario'));
 
     if (!form.materias.trim()) newErrors.materias = 'Indica al menos una materia';
 
     if (!isGuid(form.sucursal)) newErrors.sucursal = 'Selecciona una sucursal válida';
 
     setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
+    if (Object.keys(newErrors).length > 0) {
+      afterValidationErrors(newErrors);
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async () => {
     if (!validate() || saving) return;
     const soft: GuardIssue[] = [];
-    const salonCount = profesor?.salones?.length ?? 0;
+    const salonCount = linkedClassroomCount ?? profesor?.salones?.length ?? 0;
     if (salonCount === 0) {
       soft.push({
         code: InteractionCodes.REL_TEACHER_NO_CLASSROOM,
@@ -336,11 +346,11 @@ export default function ProfesorFormModal({ open, onClose, onSave, profesor, sav
             Datos Personales
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input label="Nombre(s)" required maxLength={FieldLimits.name} value={form.firstName} onChange={(e) => handleChange('firstName', e.target.value)} error={errors.firstName} placeholder="Ej. María Elena" />
-            <Input label="Apellidos" required maxLength={FieldLimits.name} value={form.lastName} onChange={(e) => handleChange('lastName', e.target.value)} error={errors.lastName} placeholder="Ej. Rodríguez López" />
-            <Input label="Email" type="email" required maxLength={FieldLimits.email} value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="profesor@SchoolCore.edu.mx" />
-            <Input label="Teléfono" required maxLength={FieldLimits.phone} value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
-            <Input label="Especialidad" required maxLength={FieldLimits.specialty} value={form.especialidad} onChange={(e) => handleChange('especialidad', e.target.value)} error={errors.especialidad} placeholder="Ej. Matemáticas" />
+            <Input label="Nombre(s)" required autoComplete="given-name" maxLength={FieldLimits.name} value={form.firstName} onChange={(e) => handleChange('firstName', e.target.value)} error={errors.firstName} placeholder="Ej. María Elena" />
+            <Input label="Apellidos" required autoComplete="family-name" maxLength={FieldLimits.name} value={form.lastName} onChange={(e) => handleChange('lastName', e.target.value)} error={errors.lastName} placeholder="Ej. Rodríguez López" />
+            <Input label="Email" type="email" autoComplete="email" maxLength={FieldLimits.email} value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="profesor@SchoolCore.edu.mx" />
+            <Input label="Teléfono" type="tel" autoComplete="tel" maxLength={FieldLimits.phone} value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
+            <Input label="Especialidad" maxLength={FieldLimits.specialty} value={form.especialidad} onChange={(e) => handleChange('especialidad', e.target.value)} error={errors.especialidad} placeholder="Ej. Matemáticas" />
             <Select
               label="Estado"
               value={form.estado}
@@ -382,7 +392,7 @@ export default function ProfesorFormModal({ open, onClose, onSave, profesor, sav
               options={nivelOptions}
             />
             <div className="sm:col-span-2">
-              <Input label="Horario" required maxLength={FieldLimits.schedule} value={form.horario} onChange={(e) => handleChange('horario', e.target.value)} error={errors.horario} placeholder="Lunes a Viernes 7:00 - 14:00" />
+              <Input label="Horario" maxLength={FieldLimits.schedule} value={form.horario} onChange={(e) => handleChange('horario', e.target.value)} error={errors.horario} placeholder="Lunes a Viernes 7:00 - 14:00" />
             </div>
           </div>
         </div>

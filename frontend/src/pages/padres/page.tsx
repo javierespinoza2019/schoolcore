@@ -15,6 +15,7 @@ import DeleteConfirmModal from '@/components/base/DeleteConfirmModal';
 import EmptyState from '@/components/base/EmptyState';
 import ModuleContextGate from '@/components/feature/ModuleContextGate';
 import { useToast } from '@/components/base/Toast';
+import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import type { Parent } from '@/mocks/padres';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { useApiResource } from '@/hooks/useApiResource';
@@ -53,12 +54,18 @@ export default function Padres() {
 
   const [data, setData] = useState<Parent[]>([]);
   const [search, setSearch] = useState('');
+  const [searchDebounced, setSearchDebounced] = useState('');
   const [sortKey, setSortKey] = useState('fullName');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [search]);
+
   const parentsQuery = useApiResource({
-    queryKey: queryKeys.parents.list({ branchId }),
-    queryFn: () => parentsApi.listParents({ branchId, pageSize: 200 }),
+    queryKey: queryKeys.parents.list({ branchId, search: searchDebounced, pageSize: 100 }),
+    queryFn: () => parentsApi.listParents({ branchId, pageSize: 100, search: searchDebounced || undefined }),
     errorToast: 'Error al cargar padres/tutores',
   });
 
@@ -79,12 +86,7 @@ export default function Padres() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
-  const filtered = useMemo(() => {
-    return data.filter((p) => {
-      if (search && !p.fullName.toLowerCase().includes(search.toLowerCase()) && !p.email.toLowerCase().includes(search.toLowerCase())) return false;
-      return true;
-    });
-  }, [data, search]);
+  const filtered = useMemo(() => data, [data]);
 
   const handleSort = (key: string) => {
     if (sortKey === key) {
@@ -137,22 +139,62 @@ export default function Padres() {
 
   const clearSelection = () => setSelectedIds(new Set());
 
-  const handleBulkStatusChange = (status: 'active' | 'inactive') => {
-    setData((prev) =>
-      prev.map((p) => (selectedIds.has(p.id) ? { ...p, status } : p))
-    );
-    showToast(`${selectedIds.size} tutores actualizados a ${status === 'active' ? 'Activo' : 'Inactivo'}`, 'success');
+  const handleBulkStatusChange = async (status: 'active' | 'inactive') => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    let ok = 0;
+    let fail = 0;
+    for (const id of ids) {
+      const parent = data.find((p) => p.id === id);
+      if (!parent || !isGuid(id)) {
+        fail += 1;
+        continue;
+      }
+      const res = await parentsApi.updateParent(id, { ...parent, status });
+      if (res.success) ok += 1;
+      else fail += 1;
+    }
+    if (ok > 0) {
+      showToast(
+        `${ok} tutores actualizados a ${status === 'active' ? 'Activo' : 'Inactivo'}${fail ? ` (${fail} fallaron)` : ''}`,
+        fail ? 'info' : 'success'
+      );
+      invalidate();
+    } else {
+      showToast('No se pudo actualizar ningún tutor', 'error');
+    }
     clearSelection();
   };
 
-  const handleBulkDelete = () => {
+  const handleBulkDelete = async () => {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
     setIsBulkDeleting(true);
-    setTimeout(() => {
-      setData((prev) => prev.filter((p) => !selectedIds.has(p.id)));
-      showToast(`${selectedIds.size} tutores eliminados correctamente`, 'success');
+    let ok = 0;
+    let fail = 0;
+    try {
+      for (const id of ids) {
+        if (!isGuid(id)) {
+          fail += 1;
+          continue;
+        }
+        const res = await parentsApi.deleteParent(id);
+        if (res.success) ok += 1;
+        else fail += 1;
+      }
+      if (ok > 0) {
+        showToast(
+          `${ok} tutores eliminados${fail ? ` (${fail} fallaron)` : ''}`,
+          fail ? 'info' : 'success'
+        );
+        invalidate();
+      } else {
+        showToast('No se pudo eliminar ningún tutor', 'error');
+      }
       clearSelection();
+    } finally {
       setIsBulkDeleting(false);
-    }, 400);
+    }
   };
 
   const handleAdd = () => {
@@ -209,12 +251,13 @@ export default function Padres() {
       occupation: formData.occupation.trim(),
       address: formData.address.trim(),
       status: formData.status as Parent['status'],
+      photo: formData.photoRemoved ? '' : editingParent?.photo || '',
     };
     try {
       let parentId = editingParent?.id;
       if (editingParent) {
         const res = await parentsApi.updateParent(editingParent.id, payload);
-        if (!res.success) {
+        if (!res.success || !res.data) {
           showToast(res.message || 'No se pudo actualizar', 'error');
           return;
         }
@@ -231,6 +274,18 @@ export default function Padres() {
           return;
         }
         parentId = res.data.id;
+      }
+
+      if (parentId && formData.photoFile && isGuid(String(parentId))) {
+        const up = await parentsApi.uploadParentPhoto(String(parentId), formData.photoFile);
+        if (!up.success || !up.data) {
+          showToast(up.message || 'Tutor guardado, pero la foto no se pudo subir', 'error');
+        } else {
+          const withPhoto = await parentsApi.updateParent(parentId, { ...payload, photo: up.data });
+          if (!withPhoto.success) {
+            showToast(withPhoto.message || 'La foto se subió pero no se vinculó al tutor', 'error');
+          }
+        }
       }
 
       if (parentId) {
@@ -273,7 +328,13 @@ export default function Padres() {
     {
       key: 'select',
       header: (
-        <label className="flex items-center justify-center cursor-pointer" onClick={(e) => e.stopPropagation()}>
+        <label
+          className="flex items-center justify-center cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleSelectAll();
+          }}
+        >
           <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${
             allPageSelected ? 'bg-primary-500 border-primary-500' : 'border-secondary-300 hover:border-secondary-400'
           }`}>
@@ -306,13 +367,22 @@ export default function Padres() {
       sortable: true,
       render: (row) => (
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-bold text-primary-600">
-              {row.firstName[0]}{row.lastName[0]}
-            </span>
-          </div>
+          {row.photo ? (
+            <TeacherAvatar
+              src={row.photo}
+              alt={row.fullName}
+              filenameHint="guardian-photo"
+              className="w-9 h-9 rounded-full object-cover object-top flex-shrink-0"
+            />
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-primary-100 flex items-center justify-center flex-shrink-0">
+              <span className="text-xs font-bold text-primary-600">
+                {row.firstName[0]}{row.lastName[0]}
+              </span>
+            </div>
+          )}
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground-800 truncate">{row.fullName}</p>
+            <p className="text-sm font-medium text-foreground-800 truncate" title={row.fullName}>{row.fullName}</p>
             <p className="text-2xs text-foreground-500">{row.email}</p>
           </div>
         </div>
@@ -424,7 +494,7 @@ export default function Padres() {
             </div>
             <div className="min-w-0">
               <p className="text-3xs text-foreground-500 font-medium uppercase tracking-wider">Total</p>
-              <p className="text-base font-bold text-foreground-900">{data.length}</p>
+              <p className="text-base font-bold text-foreground-900">{parentsQuery.totalCount ?? data.length}</p>
             </div>
           </Card>
           <Card padding="sm" className="flex items-center gap-3">
@@ -463,17 +533,17 @@ export default function Padres() {
             </span>
             <div className="flex items-center gap-2 flex-wrap">
               <Button variant="ghost" size="sm" onClick={clearSelection}>Cancelar</Button>
-              <Button variant="outline" size="sm" icon="ri-check-line" onClick={() => handleBulkStatusChange('active')}>
+              <Button variant="outline" size="sm" icon="ri-check-line" onClick={() => void handleBulkStatusChange('active')}>
                 Activar
               </Button>
-              <Button variant="outline" size="sm" icon="ri-close-line" onClick={() => handleBulkStatusChange('inactive')}>
+              <Button variant="outline" size="sm" icon="ri-close-line" onClick={() => void handleBulkStatusChange('inactive')}>
                 Desactivar
               </Button>
               <Button
                 variant="danger"
                 size="sm"
                 icon="ri-delete-bin-line"
-                onClick={handleBulkDelete}
+                onClick={() => void handleBulkDelete()}
                 loading={isBulkDeleting}
               >
                 Eliminar
