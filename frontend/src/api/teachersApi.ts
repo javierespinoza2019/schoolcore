@@ -138,7 +138,7 @@ export async function listTeachers(params: TeacherListParams = {}): Promise<Fetc
     () => apiClient(`/teachers${q}`),
     () => profesoresData
   );
-  const items = unwrapList(result.data).map((x) => normalizeTeacher(x));
+  const items = unwrapList(result.data).map((x) => normalizeTeacher(x)).filter((t) => result.source !== 'api' || isGuid(t.id));
   const totalCount = unwrapTotalCount(result.data, items.length);
   if (result.source === 'api') return { data: items, totalCount, source: 'api', message: result.message };
   return {
@@ -150,6 +150,9 @@ export async function listTeachers(params: TeacherListParams = {}): Promise<Fetc
 }
 
 export async function getTeacher(id: string | number): Promise<ApiResponse<Profesor>> {
+  if (!isGuid(id)) {
+    return { success: false, data: null, message: 'Identificador de profesor inválido.', errors: ['InvalidId'] };
+  }
   const res = await apiClient<unknown>(`/teachers/${id}`);
   if (res.success && res.data) return { ...res, data: normalizeTeacher(res.data) };
   return { ...res, data: null };

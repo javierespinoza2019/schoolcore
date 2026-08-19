@@ -12,6 +12,7 @@ export const InteractionCodes = {
   REL_STUDENT_NO_GUARDIAN: 'REL_STUDENT_NO_GUARDIAN',
   REL_STUDENT_NO_CLASSROOM: 'REL_STUDENT_NO_CLASSROOM',
   REL_STUDENT_NO_TEACHER: 'REL_STUDENT_NO_TEACHER',
+  VAL_AGE_LEVEL: 'VAL_AGE_LEVEL',
   REL_GUARDIAN_NO_CHILDREN: 'REL_GUARDIAN_NO_CHILDREN',
   REL_TEACHER_NO_CLASSROOM: 'REL_TEACHER_NO_CLASSROOM',
   RATE_LIMITED: 'RATE_LIMITED',
@@ -48,6 +49,8 @@ export const INTERACTION_MESSAGES: Record<InteractionCode, string> = {
     'No hay salón vinculado a este nivel, grado y grupo en la sucursal.',
   REL_STUDENT_NO_TEACHER:
     'No hay profesor asociado a este grupo/salón. Puedes continuar y asignarlo después.',
+  VAL_AGE_LEVEL:
+    'La edad del alumno no coincide con el rango típico de ese nivel. Revisa fecha de nacimiento y nivel.',
   REL_GUARDIAN_NO_CHILDREN:
     'Este tutor no tiene alumnos vinculados. Puedes vincularlos después.',
   REL_TEACHER_NO_CLASSROOM:
@@ -88,9 +91,9 @@ export function friendlyApiError(res: {
   for (const e of errs) {
     if (!looksTechnical(e)) return e;
   }
-  return msg || 'No se pudo completar la operación. Revisa los datos e intenta de nuevo.';
+  return 'No se pudo completar la operación. Revisa los datos e intenta de nuevo.';
 }
 
 function looksTechnical(text: string): boolean {
-  return /exception|sql|stack|sp_|dbo\.|at SchoolCore|Nullable|Guid/i.test(text);
+  return /exception|sql|stack|sp_|dbo\.|at SchoolCore|Nullable|System\.Guid|HTTP\s*[45]\d{2}/i.test(text);
 }

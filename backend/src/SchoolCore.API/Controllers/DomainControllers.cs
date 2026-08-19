@@ -99,6 +99,10 @@ public sealed class PeopleController : ControllerBase
     public async Task<ActionResult<ApiResponse>> DeleteDocument(Guid id, CancellationToken ct)
     { await _service.DeleteDocumentAsync(id, ct); return Ok(ApiResponse.Ok("Document deleted.")); }
 
+    [HttpPatch("documents/{id:guid}/status")]
+    public async Task<ActionResult<ApiResponse<DocumentDto>>> SetDocumentStatus(Guid id, [FromBody] DocumentSetStatusRequest request, CancellationToken ct)
+        => Ok(ApiResponse<DocumentDto>.Ok(await _service.SetDocumentStatusAsync(id, request.Status, ct)));
+
     [HttpGet("timeline")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<TimelineEventDto>>>> ListTimeline([FromQuery] string entityType, [FromQuery] Guid entityId, CancellationToken ct)
         => Ok(ApiResponse<IReadOnlyList<TimelineEventDto>>.Ok(await _service.ListTimelineAsync(entityType, entityId, ct)));

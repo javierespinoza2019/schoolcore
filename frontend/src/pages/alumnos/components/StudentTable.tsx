@@ -46,7 +46,7 @@ export default function StudentTable({ students, classrooms = [], onViewStudent,
     () =>
       students.map((s) => ({
         ...s,
-        _profesorName: getProfesorDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms),
+        _profesorName: getProfesorDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms, s.branchId),
       })),
     [students, classrooms]
   );

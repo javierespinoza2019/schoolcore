@@ -11,6 +11,7 @@ import * as studentsApi from '@/api/studentsApi';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
+import { filterTutorCatalog, TUTOR_SEARCH_MIN } from '@/pages/alumnos/helpers/tutorCatalog';
 
 interface VincularTutorModalProps {
   open: boolean;
@@ -36,23 +37,14 @@ export default function VincularTutorModal({
     queryFn: () => parentsApi.listParents({ pageSize: 100 }),
     enabled: open,
   });
-  const allParents: Parent[] = parentsQuery.data?.data ?? [];
+  const allParents: Parent[] = (parentsQuery.data?.data ?? []).filter((p) => isGuid(p.id));
 
   const alreadyLinkedIds = useMemo(() => student.parents.map((p) => p.id), [student.parents]);
 
-  const availableParents = useMemo(() => {
-    let filtered = allParents.filter((p) => !alreadyLinkedIds.includes(p.id));
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      filtered = filtered.filter(
-        (p) =>
-          p.fullName.toLowerCase().includes(q) ||
-          p.email.toLowerCase().includes(q) ||
-          p.phone.includes(q)
-      );
-    }
-    return filtered;
-  }, [search, alreadyLinkedIds, allParents]);
+  const availableParents = useMemo(
+    () => filterTutorCatalog(allParents, search, alreadyLinkedIds),
+    [search, alreadyLinkedIds, allParents]
+  );
 
   const selectedParent = useMemo(
     () => allParents.find((p) => p.id === selectedParentId) || null,
@@ -145,7 +137,7 @@ export default function VincularTutorModal({
       <div className="space-y-4">
         <Input
           icon="ri-search-line"
-          placeholder="Buscar tutor por nombre, email o teléfono..."
+          placeholder="Buscar tutor (mín. 2 caracteres)..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -169,17 +161,19 @@ export default function VincularTutorModal({
                 Reintentar
               </Button>
             </div>
-          ) : availableParents.length === 0 ? (
+          ) : availableParents.list.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-10 text-foreground-400">
               <i className="ri-user-search-line text-2xl mb-2" />
-              <p className="text-sm">
-                {search.trim()
-                  ? 'No se encontraron tutores con ese criterio'
-                  : 'No hay tutores disponibles. Créalos en Padres.'}
+              <p className="text-sm text-center px-3">
+                {availableParents.needsSearch
+                  ? `Hay ${availableParents.catalogSize} tutores. Escribe al menos ${TUTOR_SEARCH_MIN} caracteres para filtrar.`
+                  : search.trim()
+                    ? 'No se encontraron tutores con ese criterio'
+                    : 'No hay tutores disponibles. Créalos en Padres.'}
               </p>
             </div>
           ) : (
-            availableParents.map((parent) => (
+            availableParents.list.map((parent) => (
               <label
                 key={parent.id}
                 className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${

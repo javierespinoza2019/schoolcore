@@ -1,8 +1,10 @@
+import { useRef } from 'react';
 import Card from '@/components/base/Card';
 import Button from '@/components/base/Button';
 import Input from '@/components/base/Input';
 import Select from '@/components/base/Select';
 import { useToast } from '@/components/base/Toast';
+import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import {
   detectDeviceTimeZone,
   labelForTimeZone,
@@ -19,6 +21,8 @@ interface Props {
   sitio: string;
   direccion: string;
   timeZoneId: string;
+  logo: string;
+  uploadingLogo?: boolean;
   onNombreChange: (v: string) => void;
   onRfcChange: (v: string) => void;
   onTelefonoChange: (v: string) => void;
@@ -26,14 +30,16 @@ interface Props {
   onSitioChange: (v: string) => void;
   onDireccionChange: (v: string) => void;
   onTimeZoneChange: (v: string) => void;
+  onLogoFile: (file: File) => void;
   onSave: () => void;
 }
 
 export default function GeneralTab({
-  saved, nombre, rfc, telefono, email, sitio, direccion, timeZoneId,
-  onNombreChange, onRfcChange, onTelefonoChange, onEmailChange, onSitioChange, onDireccionChange, onTimeZoneChange, onSave,
+  saved, nombre, rfc, telefono, email, sitio, direccion, timeZoneId, logo, uploadingLogo = false,
+  onNombreChange, onRfcChange, onTelefonoChange, onEmailChange, onSitioChange, onDireccionChange, onTimeZoneChange, onLogoFile, onSave,
 }: Props) {
   const { showToast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const handleDetect = () => {
     const detected = detectDeviceTimeZone();
@@ -48,6 +54,20 @@ export default function GeneralTab({
     } else {
       showToast(`Detectamos ${detected}. Elige la zona de negocio más cercana del catálogo.`, 'info');
     }
+  };
+
+  const handlePickLogo = (file: File | undefined) => {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      showToast('El logo debe pesar máximo 2 MB', 'error');
+      return;
+    }
+    const okType = /image\/(png|jpeg|jpg)/i.test(file.type) || /\.(png|jpe?g)$/i.test(file.name);
+    if (!okType) {
+      showToast('Usa PNG o JPG (SVG no está soportado todavía)', 'error');
+      return;
+    }
+    onLogoFile(file);
   };
 
   return (
@@ -75,11 +95,39 @@ export default function GeneralTab({
       <Card padding="lg">
         <h3 className="text-sm font-semibold text-foreground-900 mb-5">Logo de la Institución</h3>
         <div className="flex flex-col items-center gap-3">
-          <div className="w-28 h-28 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
-            <i className="ri-graduation-cap-fill text-white text-3xl" />
-          </div>
-          <p className="text-xs text-foreground-500 text-center">Haz clic para subir un nuevo logo (PNG o SVG, max 2MB)</p>
-          <Button variant="outline" size="sm" icon="ri-upload-line" onClick={() => showToast('Selector de archivos abierto — selecciona tu logo', 'info')}>Subir Logo</Button>
+          {logo ? (
+            <TeacherAvatar
+              src={String(logo)}
+              alt="Logo"
+              filenameHint="institution-logo"
+              className="w-28 h-28 rounded-xl object-contain border border-secondary-200 bg-background-50"
+            />
+          ) : (
+            <div className="w-28 h-28 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
+              <i className="ri-graduation-cap-fill text-white text-3xl" />
+            </div>
+          )}
+          <p className="text-xs text-foreground-500 text-center">PNG o JPG, máximo 2 MB. Después pulsa Guardar cambios.</p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/png,image/jpeg"
+            className="hidden"
+            onChange={(e) => {
+              handlePickLogo(e.target.files?.[0]);
+              e.target.value = '';
+            }}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            icon="ri-upload-line"
+            loading={uploadingLogo}
+            disabled={uploadingLogo}
+            onClick={() => fileRef.current?.click()}
+          >
+            Subir Logo
+          </Button>
         </div>
       </Card>
 

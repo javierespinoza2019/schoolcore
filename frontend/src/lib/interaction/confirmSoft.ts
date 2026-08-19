@@ -23,6 +23,11 @@ export async function confirmSoftWarnings(issues: GuardIssue[]): Promise<boolean
     reverseButtons: true,
   });
 
+  if (!result.isConfirmed) {
+    const body = document.querySelector<HTMLElement>('[role="dialog"] .overflow-y-auto');
+    body?.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
   return result.isConfirmed;
 }
 

@@ -9,6 +9,7 @@ import type { Student } from '@/mocks/alumnos';
 import type { Parent } from '@/mocks/padres';
 import type { Salon } from '@/mocks/salones';
 import { getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
+import { filterTutorCatalog, TUTOR_SEARCH_MIN } from '@/pages/alumnos/helpers/tutorCatalog';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { isGuid } from '@/api/helpers';
 import {
@@ -21,10 +22,12 @@ import {
   validateTextFree,
 } from '@/lib/validation/fields';
 import * as parentsApi from '@/api/parentsApi';
+import * as settingsApi from '@/api/settingsApi';
 import { queryKeys } from '@/api/queryKeys';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import { collectStudentInteractionIssues } from '@/lib/interaction/guards';
 import { confirmSoftWarnings } from '@/lib/interaction/confirmSoft';
+import { InteractionCodes, interactionMessage } from '@/lib/interaction/messages';
 import { useToast } from '@/components/base/Toast';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
@@ -63,6 +66,7 @@ export interface StudentFormData {
   photoFile: File | null;
   photoRemoved: boolean;
   linkedParents: LinkedParentEntry[];
+  educationLevelId?: string;
 }
 
 const emptyForm: StudentFormData = {
@@ -90,6 +94,33 @@ const emptyForm: StudentFormData = {
 
 const niveles = ['Preescolar', 'Primaria', 'Secundaria', 'Preparatoria'];
 const grupos = ['A', 'B', 'C'];
+
+const LEVEL_AGE_RANGE: Record<string, [number, number]> = {
+  preescolar: [2, 6],
+  primaria: [5, 13],
+  secundaria: [11, 16],
+  preparatoria: [14, 21],
+};
+
+function ageFromBirthDate(iso: string): number | null {
+  if (!iso) return null;
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - d.getFullYear();
+  const m = today.getMonth() - d.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age -= 1;
+  return age;
+}
+
+function resolveLevelId(
+  levels: Array<{ id?: string; nombre?: string }>,
+  levelName: string
+): string | undefined {
+  const n = levelName.trim().toLowerCase();
+  const hit = levels.find((l) => String(l.nombre ?? '').trim().toLowerCase() === n);
+  return hit && isGuid(hit.id) ? String(hit.id) : undefined;
+}
 const parentescoOptions = [
   'Padre',
   'Madre',
@@ -138,7 +169,14 @@ export default function StudentFormModal({
     queryFn: () => parentsApi.listParents({ pageSize: 100 }),
     enabled: open,
   });
-  const allParents: Parent[] = parentsQuery.data?.data ?? [];
+  const allParents: Parent[] = (parentsQuery.data?.data ?? []).filter((p) => isGuid(p.id));
+
+  const levelsQuery = useQuery({
+    queryKey: queryKeys.settings.catalogs(),
+    queryFn: () => settingsApi.listEducationLevels(),
+    enabled: open,
+  });
+  const catalogLevels = levelsQuery.data?.data ?? [];
 
   useEffect(() => {
     if (!open) return;
@@ -168,6 +206,7 @@ export default function StudentFormModal({
           parentId: p.id,
           relationship: p.relationship,
         })),
+        educationLevelId: student.educationLevelId,
       });
       setPhotoPreview(student.photo);
     } else {
@@ -200,7 +239,13 @@ export default function StudentFormModal({
   }, [form.level, form.grade, form.group, form.branchName, form.branchId, classrooms]);
 
   const handleChange = (field: keyof StudentFormData, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [field]: value };
+      if (field === 'level') {
+        next.educationLevelId = resolveLevelId(catalogLevels, value);
+      }
+      return next;
+    });
     if (errors[field]) {
       setErrors((prev) => {
         const next = { ...prev };
@@ -221,18 +266,8 @@ export default function StudentFormModal({
   );
 
   const filteredParents = useMemo(() => {
-    let list = allParents;
-    if (parentSearch.trim()) {
-      const q = parentSearch.toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.fullName.toLowerCase().includes(q) ||
-          p.email.toLowerCase().includes(q) ||
-          p.phone.includes(q)
-      );
-    }
-    return list;
-  }, [parentSearch, allParents]);
+    return filterTutorCatalog(allParents, parentSearch, linkedParentIds);
+  }, [parentSearch, allParents, linkedParentIds]);
 
   const toggleParent = (parentId: string) => {
     setForm((prev) => {
@@ -334,6 +369,7 @@ export default function StudentFormModal({
           : 'Selecciona una sucursal válida';
     }
     if (!form.status) newErrors.status = 'Selecciona un estado';
+    if (form.gender !== 'M' && form.gender !== 'F') newErrors.gender = 'Selecciona el género';
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) {
@@ -358,6 +394,15 @@ export default function StudentFormModal({
       linkedParentIds: form.linkedParents.map((lp) => lp.parentId),
       classrooms,
     });
+
+    const age = ageFromBirthDate(form.birthDate);
+    const range = LEVEL_AGE_RANGE[form.level.trim().toLowerCase()];
+    if (age != null && range && (age < range[0] || age > range[1])) {
+      soft.push({
+        code: InteractionCodes.VAL_AGE_LEVEL,
+        message: `${interactionMessage(InteractionCodes.VAL_AGE_LEVEL)} (edad ${age}, ${form.level} suele ser ${range[0]}–${range[1]} años).`,
+      });
+    }
 
     if (hard.length > 0) {
       const first = hard[0];
@@ -541,6 +586,7 @@ export default function StudentFormModal({
               required
               value={form.gender}
               onChange={(e) => handleChange('gender', e.target.value)}
+              error={errors.gender}
               options={[
                 { value: 'M', label: 'Masculino' },
                 { value: 'F', label: 'Femenino' },
@@ -693,7 +739,7 @@ export default function StudentFormModal({
             )}
           </h4>
           <p className="text-xs text-foreground-500 mb-3">
-            Selecciona tutores registrados (módulo Padres). Opcional al crear.
+            Busca tutores registrados (módulo Padres). Opcional al crear.
           </p>
 
           {form.linkedParents.length > 0 && (
@@ -733,7 +779,7 @@ export default function StudentFormModal({
 
           <Input
             icon="ri-search-line"
-            placeholder="Buscar tutor por nombre, email o teléfono..."
+            placeholder="Buscar tutor (mín. 2 caracteres)..."
             value={parentSearch}
             onChange={(e) => setParentSearch(e.target.value)}
             className="mb-2"
@@ -750,17 +796,19 @@ export default function StudentFormModal({
                 <i className="ri-error-warning-line text-xl mb-1.5 text-amber-500" />
                 <p className="text-sm">No se pudieron cargar tutores</p>
               </div>
-            ) : filteredParents.length === 0 ? (
+            ) : filteredParents.list.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-6 text-foreground-400">
                 <i className="ri-user-search-line text-xl mb-1.5" />
-                <p className="text-sm">
-                  {parentSearch.trim()
-                    ? 'No se encontraron tutores con ese criterio'
-                    : 'No hay tutores registrados. Créalos en Padres.'}
+                <p className="text-sm text-center px-3">
+                  {filteredParents.needsSearch
+                    ? `Hay ${filteredParents.catalogSize} tutores. Escribe al menos ${TUTOR_SEARCH_MIN} caracteres para filtrar.`
+                    : parentSearch.trim()
+                      ? 'No se encontraron tutores con ese criterio'
+                      : 'No hay tutores registrados. Créalos en Padres.'}
                 </p>
               </div>
             ) : (
-              filteredParents.map((parent) => {
+              filteredParents.list.map((parent) => {
                 const isSelected = linkedParentIds.includes(parent.id);
                 return (
                   <div

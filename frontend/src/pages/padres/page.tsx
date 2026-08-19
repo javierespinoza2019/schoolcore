@@ -443,7 +443,7 @@ export default function Padres() {
       render: (row) => (
         <div className="flex items-center justify-center gap-1">
           <button
-            onClick={(e) => { e.stopPropagation(); navigate(`/padres/${row.id}`); }}
+            onClick={(e) => { e.stopPropagation(); if (isGuid(row.id)) navigate(`/padres/${row.id}`); }}
             className="w-7 h-7 flex items-center justify-center rounded-md text-foreground-400 hover:text-primary-600 hover:bg-primary-50 transition-colors cursor-pointer"
             title="Ver detalle"
           >
@@ -572,7 +572,7 @@ export default function Padres() {
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
-              onRowClick={(row) => navigate(`/padres/${row.id}`)}
+              onRowClick={(row) => { if (isGuid(row.id)) navigate(`/padres/${row.id}`); }}
               emptyMessage="No hay tutores registrados"
             />
             <Pagination

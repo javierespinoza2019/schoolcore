@@ -10,8 +10,8 @@ interface ExpedienteTabProps {
 }
 
 export default function ExpedienteTab({ student, classrooms = [] }: ExpedienteTabProps) {
-  const profesor = getProfesorDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms);
-  const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms);
+  const profesor = getProfesorDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms, student.branchId);
+  const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms, student.branchId);
 
   const infoGroups = [
     {

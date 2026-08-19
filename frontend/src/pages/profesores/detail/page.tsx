@@ -102,7 +102,7 @@ export default function ProfesorDetail() {
       if (!res.success || !res.data) throw new Error(res.message || 'Profesor no encontrado');
       return res.data;
     },
-    enabled: Boolean(id),
+    enabled: Boolean(id) && isGuid(id),
   });
   const profesor = teacherQ.data ?? null;
 
@@ -128,6 +128,23 @@ export default function ProfesorDetail() {
     () => gruposConAlumnos.reduce((acc, g) => acc + g.alumnos.length, 0),
     [gruposConAlumnos]
   );
+
+  if (!id || !isGuid(id)) {
+    return (
+      <MainLayout>
+        <div className="max-w-[1440px] mx-auto flex flex-col items-center justify-center py-20">
+          <div className="w-16 h-16 flex items-center justify-center rounded-full bg-secondary-100 mb-4">
+            <i className="ri-user-voice-line text-2xl text-secondary-400" />
+          </div>
+          <h2 className="text-base font-semibold text-foreground-800 mb-1">Profesor no encontrado</h2>
+          <p className="text-sm text-foreground-500 mb-4">El identificador del profesor no es válido.</p>
+          <Button variant="primary" size="sm" icon="ri-arrow-left-line" onClick={() => navigate('/profesores')}>
+            Volver a Profesores
+          </Button>
+        </div>
+      </MainLayout>
+    );
+  }
 
   if (teacherQ.isPending) {
     return (

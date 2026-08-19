@@ -33,7 +33,12 @@ function normalizeParent(raw: Record<string, unknown>): Parent {
     occupation: String(raw.occupation ?? ''),
     address: String(raw.address ?? ''),
     status: (String(raw.status ?? 'active') as Parent['status']) || 'active',
-    childrenCount: Number(raw.childrenCount ?? childrenIds.length ?? 0),
+    childrenCount: (() => {
+      const rawCount = raw.childrenCount ?? raw.ChildrenCount;
+      const n = Number(rawCount);
+      if (Number.isFinite(n) && n >= 0) return n;
+      return childrenIds.length;
+    })(),
     childrenIds,
     childrenNames,
     createdAt: String(raw.createdAt ?? '').slice(0, 10),
@@ -132,7 +137,10 @@ export async function listParents(params: ParentListParams = {}): Promise<FetchR
   );
   const items = unwrapList(result.data).map((x) => normalizeParent(x as Record<string, unknown>));
   const totalCount = unwrapTotalCount(result.data, items.length);
-  if (result.source === 'api') return { data: items, totalCount, source: 'api', message: result.message };
+  if (result.source === 'api') {
+    const apiItems = items.filter((p) => isGuid(p.id));
+    return { data: apiItems, totalCount, source: 'api', message: result.message };
+  }
   return {
     data: items.length ? items : mockParents,
     totalCount: items.length ? totalCount : mockParents.length,

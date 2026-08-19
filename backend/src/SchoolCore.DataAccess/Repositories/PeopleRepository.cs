@@ -28,6 +28,7 @@ public interface IPeopleRepository
     Task<DocumentDto?> GetDocumentAsync(Guid tenantId, Guid id, CancellationToken ct = default);
     Task<PagedResult<DocumentDto>> ListDocumentsAsync(Guid tenantId, string? entityType, Guid? entityId, int page, int pageSize, CancellationToken ct = default);
     Task SoftDeleteDocumentAsync(Guid tenantId, Guid id, Guid? userId, CancellationToken ct = default);
+    Task<DocumentDto> SetDocumentStatusAsync(Guid tenantId, Guid id, string status, Guid? userId, CancellationToken ct = default);
 
     Task<IReadOnlyList<TimelineEventDto>> ListTimelineAsync(Guid tenantId, string entityType, Guid entityId, CancellationToken ct = default);
     Task<TimelineEventDto> CreateTimelineAsync(Guid tenantId, Guid id, TimelineEventCreateRequest request, Guid? userId, CancellationToken ct = default);
@@ -258,6 +259,18 @@ public sealed class PeopleRepository : IPeopleRepository
     {
         await using var conn = await OpenAsync(ct);
         await conn.ExecuteAsync(new CommandDefinition("sp_Document_SoftDelete", new { TenantId = tenantId, Id = id, DeletedBy = userId }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+    }
+
+    public async Task<DocumentDto> SetDocumentStatusAsync(Guid tenantId, Guid id, string status, Guid? userId, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        return await conn.QuerySingleAsync<DocumentDto>(new CommandDefinition("sp_Document_SetStatus", new
+        {
+            TenantId = tenantId,
+            Id = id,
+            Status = status,
+            UpdatedBy = userId
+        }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
     }
 
     public async Task<IReadOnlyList<TimelineEventDto>> ListTimelineAsync(Guid tenantId, string entityType, Guid entityId, CancellationToken ct = default)

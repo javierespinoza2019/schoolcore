@@ -13,6 +13,8 @@ import { useSchoolContext } from '@/context/SchoolContext';
 import { submitEnrollment, listEnrollments, deleteEnrollment, type EnrollmentResult, type EnrollmentSummary } from '@/api/enrollmentsApi';
 import * as parentsApi from '@/api/parentsApi';
 import * as settingsApi from '@/api/settingsApi';
+import ParentFormModal from '@/pages/padres/components/ParentFormModal';
+import type { ParentFormData } from '@/pages/padres/components/ParentFormModal';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
 import type { ConceptoPago } from '@/mocks/configuracion';
@@ -23,7 +25,8 @@ import { friendlyApiError, InteractionCodes, interactionMessage } from '@/lib/in
 import * as classroomsApi from '@/api/classroomsApi';
 import { useApiResource } from '@/hooks/useApiResource';
 import type { Salon } from '@/mocks/salones';
-import { resolveClassroomId, getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
+import { resolveClassroomId, getSalonDelAlumno, findMatchingClassroom } from '@/pages/alumnos/helpers/alumnoSalon';
+import { filterTutorCatalog, TUTOR_SEARCH_MIN } from '@/pages/alumnos/helpers/tutorCatalog';
 import { DOCUMENT_RULES_HINT } from '@/lib/documents/rules';
 import {
   FieldLimits,
@@ -180,12 +183,65 @@ export default function Inscripciones() {
   const [result, setResult] = useState<EnrollmentResult | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [savingEnrollment, setSavingEnrollment] = useState(false);
+  const [parentModalOpen, setParentModalOpen] = useState(false);
+  const [savingParent, setSavingParent] = useState(false);
+  const [parentSearch, setParentSearch] = useState('');
 
   const parentsQuery = useQuery({
     queryKey: queryKeys.parents.list({ forEnrollment: true }),
     queryFn: () => parentsApi.listParents({ pageSize: 100 }),
   });
-  const parents = parentsQuery.data?.data ?? [];
+  const parents = (parentsQuery.data?.data ?? []).filter((p) => isGuid(p.id));
+  const parentsForSelect = useMemo(() => {
+    const result = filterTutorCatalog(parents, parentSearch);
+    const keepIds = new Set([data.padreId, data.tutorId].filter((id) => isGuid(id)));
+    const keep = parents.filter((p) => keepIds.has(p.id));
+    const seen = new Set(result.list.map((p) => p.id));
+    return { ...result, list: [...keep.filter((p) => !seen.has(p.id)), ...result.list] };
+  }, [parents, parentSearch, data.padreId, data.tutorId]);
+
+  const handleSaveNewParent = async (formData: ParentFormData) => {
+    setSavingParent(true);
+    const payload = {
+      firstName: formData.firstName.trim(),
+      lastName: formData.lastName.trim(),
+      fullName: `${formData.firstName.trim()} ${formData.lastName.trim()}`,
+      email: formData.email.trim(),
+      phone: formData.phone.trim(),
+      occupation: formData.occupation.trim(),
+      address: formData.address.trim(),
+      status: formData.status as 'active' | 'inactive',
+      photo: formData.photoRemoved ? '' : '',
+    };
+    try {
+      const res = await parentsApi.createParent({
+        ...payload,
+        childrenCount: 0,
+        childrenIds: [],
+        childrenNames: [],
+        createdAt: new Date().toISOString().split('T')[0],
+      });
+      if (!res.success || !res.data) {
+        showToast(friendlyApiError(res) || 'No se pudo registrar el tutor', 'error');
+        return;
+      }
+      let parentId = res.data.id;
+      if (formData.photoFile && isGuid(parentId)) {
+        const up = await parentsApi.uploadParentPhoto(parentId, formData.photoFile);
+        if (up.success && up.data) {
+          await parentsApi.updateParent(parentId, { ...payload, photo: up.data });
+        }
+      }
+      void queryClient.invalidateQueries({ queryKey: queryKeys.parents.all });
+      update('padreId', parentId);
+      setParentModalOpen(false);
+      showToast(`Tutor "${payload.fullName}" registrado. Continúa la inscripción.`, 'success');
+    } catch {
+      showToast('Error de red al registrar el tutor', 'error');
+    } finally {
+      setSavingParent(false);
+    }
+  };
 
   const classroomsQ = useApiResource({
     queryKey: queryKeys.classrooms.list({ for: 'enrollment' }),
@@ -381,6 +437,18 @@ export default function Inscripciones() {
         setErrors((prev) => ({ ...prev, grupo: hard[0].message }));
         setStep(3);
       }
+      return;
+    }
+
+    const matchedSalon = findMatchingClassroom(classrooms, levelLabel, gradeLabel, data.grupo, {
+      branchId: school.branchId,
+      branchName: school.branch?.name || '',
+    });
+    if (matchedSalon && matchedSalon.capacidad > 0 && (matchedSalon.ocupados ?? 0) >= matchedSalon.capacidad) {
+      const msg = `El salón "${matchedSalon.nombre}" está lleno (${matchedSalon.ocupados}/${matchedSalon.capacidad}). Elige otro grupo.`;
+      showToast(msg, 'error');
+      setErrors((prev) => ({ ...prev, grupo: msg }));
+      setStep(3);
       return;
     }
 
@@ -668,7 +736,7 @@ export default function Inscripciones() {
             <div>
               <h3 className="text-sm font-semibold text-foreground-900 mb-1">Padres o Tutores</h3>
               <p className="text-xs text-foreground-500 mb-5">
-                Selecciona tutores ya registrados (recomendado). Puedes inscribir ahora y vincularlos después.
+                Busca tutores ya registrados (recomendado). Puedes inscribir ahora y vincularlos después.
               </p>
               {parentsQuery.isLoading ? (
                 <p className="text-sm text-foreground-500 py-6">Cargando tutores...</p>
@@ -677,13 +745,26 @@ export default function Inscripciones() {
                   No hay tutores en el sistema. Puedes continuar y vincularlos después, o registrar uno en Padres.
                 </div>
               ) : (
+                <div className="space-y-4">
+                  <Input
+                    icon="ri-search-line"
+                    placeholder="Buscar tutor (mín. 2 caracteres)..."
+                    value={parentSearch}
+                    onChange={(e) => setParentSearch(e.target.value)}
+                  />
+                  {parentsForSelect.needsSearch && (
+                    <p className="text-xs text-foreground-500">
+                      Hay {parentsForSelect.catalogSize} tutores. Escribe al menos {TUTOR_SEARCH_MIN} caracteres
+                      para filtrar el listado.
+                    </p>
+                  )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   <div>
                     <Select
                       label="Padre o Tutor Principal"
                       options={[
                         { value: '', label: 'Seleccionar padre/tutor...' },
-                        ...parents.map((p) => ({
+                        ...parentsForSelect.list.map((p) => ({
                           value: p.id,
                           label: `${p.fullName}${p.occupation ? ` — ${p.occupation}` : ''}`,
                         })),
@@ -706,7 +787,7 @@ export default function Inscripciones() {
                       label="Segundo Tutor (Opcional)"
                       options={[
                         { value: '', label: 'Seleccionar segundo tutor...' },
-                        ...parents
+                        ...parentsForSelect.list
                           .filter((p) => p.id !== data.padreId)
                           .map((p) => ({
                             value: p.id,
@@ -726,10 +807,11 @@ export default function Inscripciones() {
                     )}
                   </div>
                 </div>
+                </div>
               )}
               <div className="mt-4 pt-4 border-t border-secondary-100">
-                <Button variant="outline" size="sm" icon="ri-user-add-line" onClick={() => navigate('/padres')}>
-                  Ir a registrar Padre/Tutor
+                <Button variant="outline" size="sm" icon="ri-user-add-line" onClick={() => setParentModalOpen(true)}>
+                  Registrar Padre/Tutor aquí
                 </Button>
               </div>
             </div>
@@ -1056,6 +1138,13 @@ export default function Inscripciones() {
           </div>
         </Card>
       </div>
+
+      <ParentFormModal
+        open={parentModalOpen}
+        onClose={() => setParentModalOpen(false)}
+        onSave={(d) => void handleSaveNewParent(d)}
+        saving={savingParent}
+      />
     </MainLayout>
     </ModuleContextGate>
   );

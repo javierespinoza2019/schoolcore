@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import MainLayout from '@/components/feature/MainLayout';
 import Card from '@/components/base/Card';
 import Button from '@/components/base/Button';
 import Input from '@/components/base/Input';
@@ -80,6 +81,7 @@ export default function NotificacionesPage() {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   return (
+    <MainLayout>
     <div className="max-w-4xl mx-auto space-y-5">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
@@ -232,5 +234,6 @@ export default function NotificacionesPage() {
         </div>
       )}
     </div>
+    </MainLayout>
   );
 }

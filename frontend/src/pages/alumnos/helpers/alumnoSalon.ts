@@ -1,4 +1,4 @@
-import { isGuid } from '@/api/helpers';
+import { humanLabel, isGuid } from '@/api/helpers';
 import type { Salon } from '@/mocks/salones';
 
 export function normalizeLevel(level: string): string {
@@ -28,9 +28,16 @@ function classroomInBranch(
   return true;
 }
 
+/** Salón en mantenimiento (u otro estado no operable) no se usa para vincular alumnos. */
+export function isClassroomUnavailable(salon: Salon): boolean {
+  const e = (salon.estado || '').trim().toLowerCase();
+  return e === 'mantenimiento' || e === 'inactivo' || e === 'cerrado';
+}
+
 /**
  * Misma regla para vista previa y validación:
  * salón de la sucursal cuyo nivel/grado/grupo (o gruposAsignados) coinciden.
+ * Omite salones en mantenimiento.
  */
 export function findMatchingClassroom(
   classrooms: Salon[],
@@ -43,8 +50,8 @@ export function findMatchingClassroom(
 
   const normLevel = normalizeLevel(level);
   const normGrade = normalizeGrade(grade);
-  const pool = classrooms.filter((c) =>
-    classroomInBranch(c, opts?.branchId, opts?.branchName)
+  const pool = classrooms.filter(
+    (c) => classroomInBranch(c, opts?.branchId, opts?.branchName) && !isClassroomUnavailable(c)
   );
 
   const byPrimary = pool.find(
@@ -82,9 +89,9 @@ export function getProfesorDelAlumno(
   const salon = findMatchingClassroom(classrooms, level, grade, group, { branchId, branchName });
   if (!salon) return 'Sin asignar';
 
-  if (salon.profesorAsignado && salon.profesorAsignado !== 'Sin asignar') {
-    return salon.profesorAsignado;
-  }
+  const fromSalon = humanLabel(salon.profesorAsignado);
+  if (fromSalon && fromSalon !== 'Sin asignar') return fromSalon;
+
   const normLevel = normalizeLevel(level);
   const normGrade = normalizeGrade(grade);
   const grupo = salon.gruposAsignados?.find(
@@ -93,7 +100,8 @@ export function getProfesorDelAlumno(
       normalizeGrade(g.grado) === normGrade &&
       g.grupo === group
   );
-  if (grupo?.profesor && grupo.profesor !== 'Sin asignar') return grupo.profesor;
+  const fromGrupo = humanLabel(grupo?.profesor);
+  if (fromGrupo && fromGrupo !== 'Sin asignar') return fromGrupo;
   return 'Sin asignar';
 }
 
@@ -120,9 +128,9 @@ export function getSalonDelAlumno(
     id: salon.id,
     nombre: salon.nombre,
     profesor:
-      (grupo?.profesor && grupo.profesor !== 'Sin asignar'
-        ? grupo.profesor
-        : salon.profesorAsignado) || 'Sin asignar',
+      humanLabel(grupo?.profesor) ||
+      humanLabel(salon.profesorAsignado) ||
+      'Sin asignar',
     tipo: salon.tipo,
   };
 }
@@ -138,4 +146,31 @@ export function resolveClassroomId(
 ): string | undefined {
   const salon = getSalonDelAlumno(level, grade, group, branchName, classrooms, branchId);
   return salon?.id && /^[0-9a-f-]{36}$/i.test(salon.id) ? salon.id : undefined;
+}
+
+/** Alumnos activos que ocupan el salón (por classroomId o por nivel/grado/grupo). */
+export function countOccupiedInClassroom(
+  salon: Salon,
+  students: Array<{
+    id: string;
+    status?: string;
+    classroomId?: string;
+    level?: string;
+    grade?: string;
+    group?: string;
+    branchId?: string;
+    branchName?: string;
+  }>,
+  excludeStudentId?: string
+): number {
+  return students.filter((s) => {
+    if (excludeStudentId && s.id === excludeStudentId) return false;
+    if ((s.status || 'active') !== 'active') return false;
+    if (salon.id && s.classroomId && s.classroomId === salon.id) return true;
+    const match = findMatchingClassroom([salon], s.level || '', s.grade || '', s.group || '', {
+      branchId: s.branchId,
+      branchName: s.branchName,
+    });
+    return Boolean(match);
+  }).length;
 }

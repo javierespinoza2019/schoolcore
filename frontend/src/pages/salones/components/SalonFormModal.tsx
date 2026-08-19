@@ -196,7 +196,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
       seen.add(current);
       options.push({
         value: current,
-        label: isGuid(current) ? `Profesor (${current.slice(0, 8)}…)` : current,
+        label: isGuid(current) ? 'Profesor asignado' : current,
       });
     }
     return options;
@@ -216,6 +216,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
   const [addingGrupo, setAddingGrupo] = useState(false);
   const [newGrupo, setNewGrupo] = useState<SalonGrupo>(emptyGrupoDraft);
   const [linkError, setLinkError] = useState('');
+  const [editingGrupoIndex, setEditingGrupoIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -251,6 +252,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
     setLinkError('');
     setAddingGrupo(false);
     setNewGrupo(emptyGrupoDraft());
+    setEditingGrupoIndex(null);
     // Intentionally only reset when opening / switching salon (not when branch options load).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [salon, open]);
@@ -273,7 +275,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
     assignError(newErrors, 'nombre', validateTextFree(form.nombre, FieldLimits.classroomName, 'El nombre', true));
     if (!form.tipo) newErrors.tipo = 'Selecciona un tipo';
     assignError(newErrors, 'capacidad', validatePositiveNumber(form.capacidad, 'La capacidad'));
-    assignError(newErrors, 'edificio', validateTextFree(form.edificio, FieldLimits.building, 'Edificio', false));
+    assignError(newErrors, 'edificio', validateTextFree(form.edificio, FieldLimits.building, 'Edificio', true));
     if (!form.piso.trim()) newErrors.piso = 'El piso es obligatorio';
     else if (isNaN(Number(form.piso)) || Number(form.piso) < 0) {
       newErrors.piso = 'Ingresa un número de piso válido';
@@ -318,12 +320,28 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
       return;
     }
 
-    setForm((prev) => ({
-      ...prev,
-      gruposAsignados: [...prev.gruposAsignados, { ...newGrupo, profesor: newGrupo.profesor || undefined }],
-    }));
+    setForm((prev) => {
+      const entry = { ...newGrupo, profesor: newGrupo.profesor || undefined };
+      if (editingGrupoIndex != null) {
+        return {
+          ...prev,
+          gruposAsignados: prev.gruposAsignados.map((g, i) => (i === editingGrupoIndex ? entry : g)),
+        };
+      }
+      return { ...prev, gruposAsignados: [...prev.gruposAsignados, entry] };
+    });
     setAddingGrupo(false);
     setNewGrupo(emptyGrupoDraft());
+    setEditingGrupoIndex(null);
+    setLinkError('');
+  };
+
+  const startEditGrupo = (index: number) => {
+    const g = form.gruposAsignados[index];
+    if (!g) return;
+    setNewGrupo({ ...g });
+    setEditingGrupoIndex(index);
+    setAddingGrupo(true);
     setLinkError('');
   };
 
@@ -505,7 +523,8 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
               <div className="space-y-2">
                 {form.gruposAsignados.map((g, i) => {
                   const profesorLabel = g.profesor
-                    ? profesorLabelByValue.get(g.profesor) || g.profesor
+                    ? profesorLabelByValue.get(g.profesor) ||
+                      (isGuid(g.profesor) ? 'Profesor asignado' : g.profesor)
                     : null;
                   return (
                     <div
@@ -514,21 +533,34 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
                     >
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-foreground-800 truncate">
-                          {g.nivel} · {g.grado} · Grupo {g.grupo}
+                          {[g.nivel, g.grado, g.grupo ? `Grupo ${g.grupo}` : '']
+                            .map((part) => (isGuid(part) ? '' : part))
+                            .filter(Boolean)
+                            .join(' · ') || 'Vínculo'}
                         </p>
                         <p className="text-xs text-foreground-500 truncate">
                           {g.horario}
                           {profesorLabel ? ` · ${profesorLabel}` : ' · Sin profesor'}
                         </p>
                       </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => startEditGrupo(i)}
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-foreground-400 hover:text-foreground-700 hover:bg-secondary-100 transition-colors cursor-pointer"
+                        title="Editar vínculo"
+                      >
+                        <i className="ri-pencil-line text-sm" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => removeGrupo(i)}
-                        className="w-7 h-7 flex items-center justify-center rounded-md text-foreground-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer flex-shrink-0"
+                        className="w-7 h-7 flex items-center justify-center rounded-md text-foreground-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
                         title="Quitar vínculo"
                       >
                         <i className="ri-close-line text-sm" />
                       </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -537,7 +569,9 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
 
             {addingGrupo && (
               <div className="p-3 rounded-lg bg-background-100 border border-background-200/70 space-y-3">
-                <p className="text-xs font-medium text-foreground-700">Nuevo vínculo</p>
+                <p className="text-xs font-medium text-foreground-700">
+                  {editingGrupoIndex != null ? 'Editar vínculo' : 'Nuevo vínculo'}
+                </p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <Select
                     label="Nivel"
@@ -583,7 +617,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
                 {linkError && <p className="text-xs text-red-600">{linkError}</p>}
                 <div className="flex items-center gap-2 pt-1">
                   <Button variant="primary" size="sm" icon="ri-link" onClick={addGrupo}>
-                    Vincular a este Salón
+                    {editingGrupoIndex != null ? 'Guardar vínculo' : 'Vincular a este Salón'}
                   </Button>
                   <Button
                     variant="ghost"
@@ -591,6 +625,7 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
                     icon="ri-close-line"
                     onClick={() => {
                       setAddingGrupo(false);
+                      setEditingGrupoIndex(null);
                       setNewGrupo(emptyGrupoDraft());
                       setLinkError('');
                     }}

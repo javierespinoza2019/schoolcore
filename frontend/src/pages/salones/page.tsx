@@ -26,7 +26,7 @@ import { queryKeys } from '@/api/queryKeys';
 import * as classroomsApi from '@/api/classroomsApi';
 import * as studentsApi from '@/api/studentsApi';
 import * as teachersApi from '@/api/teachersApi';
-import { isGuid } from '@/api/helpers';
+import { humanLabel, isGuid } from '@/api/helpers';
 
 function getEstadoBadge(estado: string) {
   switch (estado) {
@@ -62,6 +62,39 @@ function getOcupacionBar(ocupados: number, capacidad: number) {
   );
 }
 
+function uniqueHuman(values: Array<string | undefined>): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const v of values) {
+    const h = humanLabel(v);
+    if (!h || seen.has(h)) continue;
+    seen.add(h);
+    out.push(h);
+  }
+  return out;
+}
+
+/** Nivel/grado/grupo visibles: vínculos reales, nunca GUID de catálogo. */
+function salonAcademicLabels(salon: Salon): { niveles: string[]; grados: string[]; grupos: string[] } {
+  const groups = (salon.gruposAsignados ?? []).filter((g) => g.grupo && g.grupo !== 'Todos');
+  if (groups.length > 0) {
+    return {
+      niveles: uniqueHuman(groups.map((g) => g.nivel)),
+      grados: uniqueHuman(groups.map((g) => g.grado)),
+      grupos: uniqueHuman(groups.map((g) => g.grupo)),
+    };
+  }
+  return {
+    niveles: uniqueHuman([salon.nivel]),
+    grados: uniqueHuman([salon.grado]),
+    grupos: uniqueHuman([salon.grupo]),
+  };
+}
+
+function joinLabels(values: string[]): string {
+  return values.length ? values.join(', ') : '—';
+}
+
 /** Titular = primer vínculo (DEF-015) o columnas planas legacy. */
 function getTitularRef(salon: Salon): string {
   const fromLink = salon.gruposAsignados?.find((g) => g.profesor && g.profesor !== 'Sin asignar')?.profesor;
@@ -71,28 +104,38 @@ function getTitularRef(salon: Salon): string {
   return '';
 }
 
-function countDistinctTeachers(salon: Salon): number {
-  const set = new Set<string>();
-  for (const g of salon.gruposAsignados ?? []) {
-    if (g.profesor && g.profesor !== 'Sin asignar') set.add(g.profesor);
-  }
-  const flat = getTitularRef(salon);
-  if (flat) set.add(flat);
-  return set.size;
-}
-
 function resolveTeacher(ref: string, teachers: Profesor[]): Profesor | undefined {
   if (!ref || ref === 'Sin asignar') return undefined;
   if (isGuid(ref)) return teachers.find((t) => String(t.id) === ref);
-  return teachers.find((t) => t.nombre === ref);
+  return teachers.find((t) => t.nombre === ref || t.nombre.toLowerCase() === ref.toLowerCase());
+}
+
+function teacherIdentity(ref: string | undefined, teachers: Profesor[]): string {
+  if (!ref || ref === 'Sin asignar') return '';
+  const t = resolveTeacher(ref, teachers);
+  if (t?.id) return String(t.id);
+  if (isGuid(ref)) return ref;
+  return `name:${ref.trim().toLowerCase()}`;
+}
+
+function countDistinctTeachers(salon: Salon, teachers: Profesor[]): number {
+  const set = new Set<string>();
+  const add = (ref?: string) => {
+    const key = teacherIdentity(ref, teachers);
+    if (key) set.add(key);
+  };
+  for (const g of salon.gruposAsignados ?? []) add(g.profesor);
+  add(salon.teacherId);
+  add(salon.profesorAsignado);
+  return set.size;
 }
 
 function teacherDisplayName(ref: string | undefined, teachers: Profesor[]): string {
   if (!ref || ref === 'Sin asignar') return 'Sin asignar';
   const t = resolveTeacher(ref, teachers);
   if (t?.nombre) return t.nombre;
-  if (isGuid(ref)) return `Profesor (${ref.slice(0, 8)}…)`;
-  return ref;
+  const visible = humanLabel(ref);
+  return visible || 'Profesor asignado';
 }
 
 function matchBranch(alumno: Student, salon: Salon): boolean {
@@ -164,13 +207,13 @@ function exportToCSV(dataToExport: Salon[]) {
   const rows = dataToExport.map((s) => [
     s.nombre,
     s.tipo,
-    s.profesorAsignado,
-    s.nivel,
-    s.grado,
-    s.grupo,
+    humanLabel(s.profesorAsignado) || 'Sin asignar',
+    joinLabels(salonAcademicLabels(s).niveles),
+    joinLabels(salonAcademicLabels(s).grados),
+    joinLabels(salonAcademicLabels(s).grupos),
     String(s.ocupados),
     String(s.capacidad),
-    s.sucursal,
+    humanLabel(s.sucursal),
     s.edificio,
     String(s.piso),
     s.horarioClase,
@@ -218,7 +261,8 @@ export default function Salones() {
     setData(
       classroomsQ.data.map((s) => ({
         ...s,
-        sucursal: s.sucursal || names.get(s.branchId || '') || branch?.name || '',
+        sucursal:
+          humanLabel(s.sucursal) || names.get(s.branchId || '') || humanLabel(branch?.name) || '',
       }))
     );
   }, [classroomsQ.data, branchOptions, branch?.name]);
@@ -249,8 +293,15 @@ export default function Salones() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<string>('');
 
-  const sucursales = useMemo(() => [...new Set(data.map((s) => s.sucursal))], [data]);
-  const niveles = useMemo(() => [...new Set(data.map((s) => s.nivel))], [data]);
+  const sucursales = useMemo(
+    () => [...new Set(data.map((s) => s.sucursal).filter((name) => Boolean(humanLabel(name))))],
+    [data]
+  );
+  const niveles = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of data) salonAcademicLabels(s).niveles.forEach((n) => set.add(n));
+    return [...set];
+  }, [data]);
   const tipos = useMemo(() => [...new Set(data.map((s) => s.tipo))], [data]);
 
   const filtered = useMemo(() => {
@@ -265,7 +316,9 @@ export default function Salones() {
       );
     }
     if (sucursalFilter) filteredData = filteredData.filter((r) => r.sucursal === sucursalFilter);
-    if (nivelFilter) filteredData = filteredData.filter((r) => r.nivel === nivelFilter);
+    if (nivelFilter) {
+      filteredData = filteredData.filter((r) => salonAcademicLabels(r).niveles.includes(nivelFilter));
+    }
     if (tipoFilter) filteredData = filteredData.filter((r) => r.tipo === tipoFilter);
     if (estadoFilter) filteredData = filteredData.filter((r) => r.estado === estadoFilter);
     return filteredData;
@@ -311,8 +364,8 @@ export default function Salones() {
   }, [quickView, teachersList]);
 
   const quickViewTeacherCount = useMemo(
-    () => (quickView ? countDistinctTeachers(quickView) : 0),
-    [quickView]
+    () => (quickView ? countDistinctTeachers(quickView, teachersList) : 0),
+    [quickView, teachersList]
   );
 
   const kpis = useMemo(() => {
@@ -324,7 +377,10 @@ export default function Salones() {
     return {
       total: classroomsQ.totalCount ?? data.length,
       disponibles: data.filter((s) => s.estado === 'Disponible').length,
-      llenos: data.filter((s) => s.estado === 'Lleno').length,
+      llenos: data.filter((s) => {
+        const occ = ocupadosMapData.get(s.id) ?? 0;
+        return s.capacidad > 0 && occ >= s.capacidad;
+      }).length,
       mantenimiento: data.filter((s) => s.estado === 'Mantenimiento').length,
       capacidadTotal: data.reduce((acc, s) => acc + s.capacidad, 0),
       ocupadosTotal,
@@ -575,7 +631,7 @@ export default function Salones() {
         }
         const profe = resolveTeacher(ref, teachersList);
         const label = teacherDisplayName(ref, teachersList);
-        const extra = countDistinctTeachers(row);
+        const extra = countDistinctTeachers(row, teachersList);
         return (
           <div className="flex items-center gap-2 min-w-0">
             <TeacherAvatar
@@ -598,14 +654,14 @@ export default function Salones() {
       header: 'Nivel',
       sortable: true,
       width: '120px',
-      render: (row) => <span className="text-sm text-foreground-700">{row.nivel}</span>,
+      render: (row) => <span className="text-sm text-foreground-700">{joinLabels(salonAcademicLabels(row).niveles)}</span>,
     },
     {
       key: 'grado',
       header: 'Grado',
       sortable: true,
       width: '90px',
-      render: (row) => <span className="text-sm text-foreground-700">{row.grado}</span>,
+      render: (row) => <span className="text-sm text-foreground-700">{joinLabels(salonAcademicLabels(row).grados)}</span>,
     },
     {
       key: 'grupo',
@@ -613,13 +669,14 @@ export default function Salones() {
       sortable: true,
       width: '120px',
       render: (row) => {
-        const todosGrupos = row.gruposAsignados && row.gruposAsignados.length > 0
-          ? row.gruposAsignados.map((g) => g.grupo)
-          : [row.grupo];
+        const grupos = salonAcademicLabels(row).grupos;
+        if (grupos.length === 0) {
+          return <span className="text-sm text-foreground-400">—</span>;
+        }
         return (
           <div className="flex flex-wrap gap-1">
-            {todosGrupos.map((g, i) => (
-              <span key={i} className="text-xs px-1.5 py-0.5 bg-secondary-100 text-secondary-700 rounded font-medium">
+            {grupos.map((g) => (
+              <span key={g} className="text-xs px-1.5 py-0.5 bg-secondary-100 text-secondary-700 rounded font-medium">
                 {g}
               </span>
             ))}
@@ -635,14 +692,14 @@ export default function Salones() {
       render: (row) => {
         const computedOcupados = ocupadosMap.get(row.id) ?? 0;
         return (
-        <div>
-          <div className="flex items-center gap-1 text-sm">
-            <span className={`font-semibold ${computedOcupados >= row.capacidad ? 'text-red-600' : 'text-foreground-800'}`}>{computedOcupados}</span>
-            <span className="text-foreground-400">/ {row.capacidad}</span>
+          <div>
+            <div className="flex items-center gap-1 text-sm" title="Alumnos de este salón / capacidad del espacio físico">
+              <span className={`font-semibold ${computedOcupados >= row.capacidad ? 'text-red-600' : 'text-foreground-800'}`}>{computedOcupados}</span>
+              <span className="text-foreground-400">/ {row.capacidad}</span>
+            </div>
+            {getOcupacionBar(computedOcupados, row.capacidad)}
           </div>
-          {getOcupacionBar(computedOcupados, row.capacidad)}
-        </div>
-      );
+        );
       },
     },
     {
@@ -650,7 +707,7 @@ export default function Salones() {
       header: 'Sucursal',
       sortable: true,
       width: '130px',
-      render: (row) => <span className="text-sm text-foreground-700">{row.sucursal}</span>,
+      render: (row) => <span className="text-sm text-foreground-700">{humanLabel(row.sucursal) || '—'}</span>,
     },
     {
       key: 'estado',
@@ -914,7 +971,7 @@ export default function Salones() {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 <div>
                   <p className="text-2xs text-foreground-500 uppercase tracking-wider">Sucursal</p>
-                  <p className="text-sm font-medium text-foreground-800">{quickView.sucursal}</p>
+                  <p className="text-sm font-medium text-foreground-800">{humanLabel(quickView.sucursal) || '—'}</p>
                 </div>
                 <div>
                   <p className="text-2xs text-foreground-500 uppercase tracking-wider">Edificio / Piso</p>
@@ -934,7 +991,7 @@ export default function Salones() {
                     <div>
                       <p className="text-2xs text-foreground-500 uppercase tracking-wider">Nivel / Grado / Grupo</p>
                       <p className="text-sm font-medium text-foreground-800">
-                        {quickView.nivel || '—'} · {quickView.grado || '—'} · {quickView.grupo || '—'}
+                        {joinLabels(salonAcademicLabels(quickView).niveles)} · {joinLabels(salonAcademicLabels(quickView).grados)} · {joinLabels(salonAcademicLabels(quickView).grupos)}
                       </p>
                     </div>
                     <div className="md:col-span-2">
@@ -976,7 +1033,9 @@ export default function Salones() {
                             </span>
                             <div className="min-w-0">
                               <p className="text-sm font-medium text-foreground-800 truncate">
-                                {g.grado} · {g.grupo} · {g.nivel}
+                                {[humanLabel(g.grado), humanLabel(g.grupo), humanLabel(g.nivel)]
+                                  .filter(Boolean)
+                                  .join(' · ') || 'Grupo'}
                               </p>
                               <p className="text-xs text-foreground-500 truncate">
                                 {g.horario || 'Sin horario'}

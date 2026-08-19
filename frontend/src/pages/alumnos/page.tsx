@@ -15,7 +15,12 @@ import EmptyState from '@/components/base/EmptyState';
 import { useToast } from '@/components/base/Toast';
 import type { Student } from '@/mocks/alumnos';
 import type { Salon } from '@/mocks/salones';
-import { getProfesorDelAlumno, getSalonDelAlumno } from '@/pages/alumnos/helpers/alumnoSalon';
+import {
+  countOccupiedInClassroom,
+  findMatchingClassroom,
+  getProfesorDelAlumno,
+  getSalonDelAlumno,
+} from '@/pages/alumnos/helpers/alumnoSalon';
 import { useNavigate } from 'react-router-dom';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { useApiResource } from '@/hooks/useApiResource';
@@ -36,8 +41,8 @@ const formatCurrency = (amount: number) => {
 function exportToCSV(data: Student[], classrooms: Salon[] = []) {
   const headers = ['Nombre', 'Matrícula', 'Nivel', 'Grado', 'Grupo', 'Sucursal', 'Estado', 'Saldo', 'Último Pago', 'Email', 'Teléfono', 'Profesor', 'Salón', 'Beca'];
   const rows = data.map((s) => {
-    const profesor = getProfesorDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms);
-    const salon = getSalonDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms);
+    const profesor = getProfesorDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms, s.branchId);
+    const salon = getSalonDelAlumno(s.level, s.grade, s.group, s.branchName, classrooms, s.branchId);
     return [
       s.fullName,
       s.enrollment,
@@ -91,6 +96,7 @@ export default function Alumnos() {
   const [deleteMode, setDeleteMode] = useState<'single' | 'bulk'>('single');
   const [bulkStudentsToDelete, setBulkStudentsToDelete] = useState<Student[]>([]);
   const [saving, setSaving] = useState(false);
+  const [filtersEpoch, setFiltersEpoch] = useState(0);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(search.trim()), 300);
@@ -219,7 +225,7 @@ export default function Alumnos() {
       email: formData.email.trim(),
       phone: formData.phone.trim(),
       birthDate: formData.birthDate,
-      gender: formData.gender as 'M' | 'F',
+      gender: formData.gender === 'F' ? 'F' : 'M',
       bloodType: formData.bloodType,
       address: formData.address.trim(),
       level: formData.level,
@@ -238,7 +244,25 @@ export default function Alumnos() {
       enrollment: editingStudent?.enrollment,
       schoolCycleId: editingStudent?.schoolCycleId || (isGuid(cycleId) ? cycleId! : undefined),
       classroomId: editingStudent?.classroomId,
+      educationLevelId: isGuid(formData.educationLevelId) ? formData.educationLevelId : undefined,
     };
+
+    const matchedSalon = findMatchingClassroom(classrooms, formData.level, formData.grade, formData.group, {
+      branchId: formData.branchId,
+      branchName: formData.branchName,
+    });
+    if (matchedSalon && isGuid(matchedSalon.id)) {
+      const occupied = countOccupiedInClassroom(matchedSalon, data, editingStudent?.id);
+      if (matchedSalon.capacidad > 0 && occupied >= matchedSalon.capacidad) {
+        showToast(
+          `El salón "${matchedSalon.nombre}" está lleno (${occupied}/${matchedSalon.capacidad}). Elige otro grupo o aumenta la capacidad.`,
+          'error'
+        );
+        setSaving(false);
+        return;
+      }
+      payload.classroomId = matchedSalon.id;
+    }
 
     try {
       const res = editingStudent
@@ -295,6 +319,7 @@ export default function Alumnos() {
     setLevel('');
     setStatus('');
     setBranch('');
+    setFiltersEpoch((n) => n + 1);
   };
 
   const handleExport = () => {
@@ -381,7 +406,7 @@ export default function Alumnos() {
               }
             />
           </Card>
-        ) : !studentsQuery.isLoading && data.length === 0 ? (
+        ) : !hasActiveFilters && data.length === 0 ? (
           <Card padding="md" className="mb-4">
             <EmptyState
               icon="ri-user-star-line"
@@ -398,6 +423,7 @@ export default function Alumnos() {
           </Card>
         ) : (
           <>
+        {data.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
           {summaryCards.map((card) => (
             <Card key={card.label} padding="sm" className="flex items-center gap-3">
@@ -411,8 +437,10 @@ export default function Alumnos() {
             </Card>
           ))}
         </div>
+        )}
 
         <StudentFilters
+          key={filtersEpoch}
           onSearch={setSearch}
           onLevelChange={setLevel}
           onStatusChange={setStatus}
@@ -421,26 +449,28 @@ export default function Alumnos() {
           className="mb-4"
         />
 
-        <StudentTable
-          students={filtered}
-          classrooms={classrooms}
-          onViewStudent={handleViewStudent}
-          onEditStudent={handleEdit}
-          onDeleteStudent={handleDelete}
-          onBulkAction={handleBulkAction}
-          pageSize={10}
-        />
-          </>
+        {filtered.length === 0 ? (
+          <Card padding="md" className="mb-4">
+            <div className="flex flex-col items-center justify-center py-8 text-foreground-400">
+              <i className="ri-filter-off-line text-xl mb-2" />
+              <p className="text-sm mb-3">No se encontraron alumnos con los filtros actuales</p>
+              <Button variant="outline" size="sm" icon="ri-close-line" onClick={clearFilters}>
+                Limpiar todos los filtros
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <StudentTable
+            students={filtered}
+            classrooms={classrooms}
+            onViewStudent={handleViewStudent}
+            onEditStudent={handleEdit}
+            onDeleteStudent={handleDelete}
+            onBulkAction={handleBulkAction}
+            pageSize={10}
+          />
         )}
-
-        {hasActiveFilters && filtered.length === 0 && data.length > 0 && (
-          <div className="flex flex-col items-center justify-center py-8 text-foreground-400 mt-4">
-            <i className="ri-filter-off-line text-xl mb-2" />
-            <p className="text-sm mb-3">No se encontraron alumnos con los filtros actuales</p>
-            <Button variant="outline" size="sm" icon="ri-close-line" onClick={clearFilters}>
-              Limpiar todos los filtros
-            </Button>
-          </div>
+          </>
         )}
 
         {/* Quick View Modal */}
@@ -495,7 +525,7 @@ export default function Alumnos() {
                   <p className="text-3xs text-foreground-500 uppercase tracking-wider">Salón</p>
                   <p className="text-sm text-foreground-800">
                     {(() => {
-                      const salon = getSalonDelAlumno(selectedStudent.level, selectedStudent.grade, selectedStudent.group, selectedStudent.branchName, classrooms);
+                      const salon = getSalonDelAlumno(selectedStudent.level, selectedStudent.grade, selectedStudent.group, selectedStudent.branchName, classrooms, selectedStudent.branchId);
                       return salon ? `${salon.nombre} (${salon.tipo})` : 'Sin asignar';
                     })()}
                   </p>
@@ -504,7 +534,7 @@ export default function Alumnos() {
                   <p className="text-3xs text-foreground-500 uppercase tracking-wider">Profesor</p>
                   <p className="text-sm text-foreground-800">
                     {(() => {
-                      const profesor = getProfesorDelAlumno(selectedStudent.level, selectedStudent.grade, selectedStudent.group, selectedStudent.branchName, classrooms);
+                      const profesor = getProfesorDelAlumno(selectedStudent.level, selectedStudent.grade, selectedStudent.group, selectedStudent.branchName, classrooms, selectedStudent.branchId);
                       return profesor === 'Sin asignar' ? <span className="text-foreground-400 italic">Sin asignar</span> : profesor;
                     })()}
                   </p>

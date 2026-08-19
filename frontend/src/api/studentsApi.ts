@@ -1,4 +1,4 @@
-import { apiClient } from '@/api/apiClient';
+import { apiClient, apiDownload, triggerBrowserDownload } from '@/api/apiClient';
 import { buildQuery, fetchOrFallback, isGuid, unwrapList, unwrapTotalCount } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
 import type { Student, StudentDocument, StudentPayment, StudentTimelineEvent } from '@/mocks/alumnos';
@@ -71,10 +71,10 @@ function toStudentUpsert(payload: Partial<Student>) {
     enrollmentNumber: payload.enrollment || null,
     firstName: payload.firstName,
     lastName: payload.lastName,
-    gender: payload.gender,
+    gender: payload.gender === 'F' ? 'F' : payload.gender === 'M' ? 'M' : null,
     birthDate: payload.birthDate || null,
     email: payload.email,
-    phone: payload.phone,
+    phone: (payload.phone ?? '').trim() || null,
     address: payload.address,
     educationLevelId: isGuid(payload.educationLevelId) ? payload.educationLevelId : null,
     levelName: payload.level || null,
@@ -129,7 +129,9 @@ export async function listStudents(params: StudentListParams = {}): Promise<Fetc
     () => apiClient(`/students${q}`),
     () => mockStudents
   );
-  const items = unwrapList(result.data).map(normalizeStudent);
+  const items = unwrapList(result.data)
+    .map(normalizeStudent)
+    .filter((s) => result.source !== 'api' || isGuid(s.id));
   return {
     data: items,
     totalCount: unwrapTotalCount(result.data, items.length),
@@ -140,6 +142,9 @@ export async function listStudents(params: StudentListParams = {}): Promise<Fetc
 
 /** GET /students/:id */
 export async function getStudent(id: string): Promise<FetchResult<Student | null>> {
+  if (!isGuid(id)) {
+    return { data: null, source: 'api', message: 'Identificador de alumno inválido.' };
+  }
   const result = await fetchOrFallback<unknown | null>(
     () => apiClient(`/students/${id}`),
     () => mockStudents.find((s) => s.id === id) ?? null
@@ -203,6 +208,44 @@ export async function deleteStudentDocument(
   documentId: string
 ): Promise<ApiResponse<null>> {
   return apiClient<null>(`/documents/${documentId}`, { method: 'DELETE' });
+}
+
+export async function downloadStudentDocument(
+  documentId: string,
+  filenameHint = 'documento'
+): Promise<{ blob: Blob; filename: string } | null> {
+  if (!isGuid(documentId)) return null;
+  return apiDownload(`/documents/${documentId}/download`, { filenameHint });
+}
+
+export async function setDocumentStatus(
+  documentId: string,
+  status: StudentDocument['status']
+): Promise<ApiResponse<StudentDocument>> {
+  if (!isGuid(documentId)) {
+    return { success: false, data: null, message: 'Documento inválido.', errors: ['InvalidId'] };
+  }
+  const res = await apiClient<Record<string, unknown>>(`/documents/${documentId}/status`, {
+    method: 'PATCH',
+    body: { status },
+  });
+  if (res.success && res.data) {
+    const d = res.data;
+    const statusRaw = String(d.status ?? status).toLowerCase();
+    const mapped: StudentDocument['status'] =
+      statusRaw === 'verified' || statusRaw === 'rejected' ? statusRaw : 'pending';
+    return {
+      ...res,
+      data: {
+        id: String(d.id ?? documentId),
+        name: String(d.originalFileName ?? d.name ?? 'Documento'),
+        type: String(d.extension ?? d.contentType ?? '').replace(/^\./, '') || 'file',
+        uploadDate: String(d.createdAt ?? '').slice(0, 10),
+        status: mapped,
+      },
+    };
+  }
+  return { ...res, data: null };
 }
 
 /** GET /students/:id/guardians — sin fallback a [] (error debe propagarse a la UI). */

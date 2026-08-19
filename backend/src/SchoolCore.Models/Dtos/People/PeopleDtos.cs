@@ -135,6 +135,11 @@ public sealed class DocumentDto
     public DateTime CreatedAt { get; set; }
 }
 
+public sealed class DocumentSetStatusRequest
+{
+    public string Status { get; set; } = "verified";
+}
+
 public sealed class TimelineEventDto
 {
     public Guid Id { get; set; }

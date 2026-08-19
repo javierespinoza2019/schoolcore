@@ -104,6 +104,26 @@ export async function updateTenantSettings(
   return { ...res, data: null };
 }
 
+/** POST /documents — logo de la institución (GUID en InstitutionSettings.LogoUrl). */
+export async function uploadInstitutionLogo(
+  tenantId: string,
+  file: File
+): Promise<ApiResponse<string>> {
+  if (!isGuid(tenantId)) {
+    return { success: false, data: null, message: 'Institución inválida.', errors: ['InvalidId'] };
+  }
+  const form = new FormData();
+  form.append('file', file);
+  form.append('entityType', 'institution-logo');
+  form.append('entityId', tenantId);
+  const res = await apiClient<Record<string, unknown>>('/documents', { method: 'POST', body: form });
+  if (res.success && res.data) {
+    const id = String(res.data.id ?? '');
+    return { ...res, data: isGuid(id) ? id : null };
+  }
+  return { ...res, data: null };
+}
+
 export async function listTimeZones(): Promise<FetchResult<{ id: string; displayNameEs: string }[]>> {
   const result = await fetchOrFallback<{ id: string; displayNameEs: string }[]>(
     async () => {

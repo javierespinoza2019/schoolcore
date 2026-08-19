@@ -15,6 +15,8 @@ import { queryKeys } from '@/api/queryKeys';
 import * as settingsApi from '@/api/settingsApi';
 import * as cyclesApi from '@/api/cyclesApi';
 import type { ConceptoPago } from '@/mocks/configuracion';
+import { useAuth } from '@/auth/AuthContext';
+import { isGuid } from '@/api/helpers';
 
 export default function Configuracion() {
   const [saved, setSaved] = useState(false);
@@ -25,6 +27,8 @@ export default function Configuracion() {
   const [sitio, setSitio] = useState('');
   const [direccion, setDireccion] = useState('');
   const [timeZoneId, setTimeZoneId] = useState('America/Mexico_City');
+  const [logo, setLogo] = useState('');
+  const [uploadingLogo, setUploadingLogo] = useState(false);
 
   const [ciclos, setCiclos] = useState<
     { id: string; nombre: string; inicio: string; fin: string; activo: boolean }[]
@@ -45,6 +49,7 @@ export default function Configuracion() {
 
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   // tenant/roles/notif: fail-soft en settingsApi (sin throw) → no toast de error al abrir Configuración
   const tenantQ = useApiResource({
@@ -89,6 +94,7 @@ export default function Configuracion() {
     setSitio(tenantQ.data.sitioWeb);
     setDireccion(tenantQ.data.direccion);
     setTimeZoneId(tenantQ.data.timeZoneId || 'America/Mexico_City');
+    setLogo(String(tenantQ.data.logo ?? ''));
   }, [tenantQ.data]);
 
   useEffect(() => {
@@ -120,6 +126,7 @@ export default function Configuracion() {
       sitioWeb: sitio,
       direccion,
       timeZoneId,
+      logo,
     });
     if (res.success || tenantQ.isFallback) {
       setSaved(true);
@@ -129,6 +136,28 @@ export default function Configuracion() {
       void queryClient.invalidateQueries({ queryKey: ['context', 'timezone'] });
     } else {
       showToast(res.message || 'No se pudo guardar', 'error');
+    }
+  };
+
+  const handleLogoFile = async (file: File) => {
+    const tenantId = user?.tenantId;
+    if (!isGuid(tenantId)) {
+      showToast('No se pudo identificar la institución. Vuelve a iniciar sesión.', 'error');
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const up = await settingsApi.uploadInstitutionLogo(tenantId, file);
+      if (!up.success || !up.data) {
+        showToast(up.message || 'No se pudo subir el logo', 'error');
+        return;
+      }
+      setLogo(up.data);
+      showToast('Logo subido. Pulsa Guardar cambios para persistirlo.', 'info');
+    } catch {
+      showToast('Error de red al subir el logo', 'error');
+    } finally {
+      setUploadingLogo(false);
     }
   };
 
@@ -147,6 +176,8 @@ export default function Configuracion() {
           sitio={sitio}
           direccion={direccion}
           timeZoneId={timeZoneId}
+          logo={logo}
+          uploadingLogo={uploadingLogo}
           onNombreChange={setNombre}
           onRfcChange={setRfc}
           onTelefonoChange={setTelefono}
@@ -154,6 +185,7 @@ export default function Configuracion() {
           onSitioChange={setSitio}
           onDireccionChange={setDireccion}
           onTimeZoneChange={setTimeZoneId}
+          onLogoFile={(f) => void handleLogoFile(f)}
           onSave={handleSaveGeneral}
         />
       ),

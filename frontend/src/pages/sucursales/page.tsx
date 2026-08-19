@@ -18,6 +18,7 @@ import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as branchesApi from '@/api/branchesApi';
 import { isGuid } from '@/api/helpers';
+import { friendlyApiError } from '@/lib/interaction/messages';
 
 function getEstadoBadge(estado: string) {
   switch (estado) {
@@ -184,7 +185,7 @@ export default function Sucursales() {
         ? await branchesApi.updateBranch(editingSucursal.id, payload)
         : await branchesApi.createBranch(payload);
       if (!res.success || !res.data) {
-        showToast(res.message || 'No se pudo guardar la sucursal', 'error');
+        showToast(friendlyApiError(res) || 'No se pudo guardar la sucursal', 'error');
         return;
       }
       if (formData.photoFile && isGuid(String(res.data.id))) {
@@ -416,16 +417,39 @@ export default function Sucursales() {
         >
           {selectedSucursal && (
             <div className="space-y-5">
-              <div className="rounded-lg overflow-hidden border border-secondary-200">
-                <iframe
-                  title={`Mapa de ${selectedSucursal.nombre}`}
-                  width="100%"
-                  height="220"
-                  style={{ border: 0 }}
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  src={`https://www.google.com/maps/embed/v1/place?key=AIzaSyDIVkGgkTqOHzvG5IvRSCYPBQqx_2mR5Js&q=${selectedSucursal.lat},${selectedSucursal.lng}&zoom=15`}
-                />
+              <div className="rounded-lg overflow-hidden border border-secondary-200 bg-background-50">
+                {(() => {
+                  const mapsQ = encodeURIComponent(
+                    [selectedSucursal.direccion, selectedSucursal.ciudad, selectedSucursal.estado, selectedSucursal.codigoPostal]
+                      .filter(Boolean)
+                      .join(', ')
+                  );
+                  const mapsHref = `https://www.google.com/maps/search/?api=1&query=${mapsQ}`;
+                  return (
+                    <>
+                      <iframe
+                        title={`Mapa de ${selectedSucursal.nombre}`}
+                        width="100%"
+                        height="220"
+                        style={{ border: 0 }}
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        src={`https://maps.google.com/maps?q=${mapsQ}&z=15&output=embed`}
+                      />
+                      <div className="px-3 py-2 border-t border-secondary-100 flex items-center justify-between gap-2">
+                        <p className="text-xs text-foreground-600 truncate">{selectedSucursal.direccion}</p>
+                        <a
+                          href={mapsHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-primary-600 hover:text-primary-700 font-medium whitespace-nowrap"
+                        >
+                          Abrir en Maps
+                        </a>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

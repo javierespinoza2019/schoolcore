@@ -74,6 +74,7 @@ public interface IPeopleService
     Task<(DocumentDto Meta, Stream Content)> DownloadDocumentAsync(Guid id, CancellationToken ct = default);
     Task<PagedResult<DocumentDto>> ListDocumentsAsync(string? entityType, Guid? entityId, PagedRequest paging, CancellationToken ct = default);
     Task DeleteDocumentAsync(Guid id, CancellationToken ct = default);
+    Task<DocumentDto> SetDocumentStatusAsync(Guid id, string status, CancellationToken ct = default);
 
     Task<IReadOnlyList<TimelineEventDto>> ListTimelineAsync(string entityType, Guid entityId, CancellationToken ct = default);
     Task<TimelineEventDto> CreateTimelineAsync(TimelineEventCreateRequest request, CancellationToken ct = default);
@@ -260,6 +261,15 @@ public sealed class PeopleService : IPeopleService
             var absolute = Path.Combine(_rootPath, meta.RelativePath.Replace('/', Path.DirectorySeparatorChar));
             if (File.Exists(absolute)) File.Delete(absolute);
         }
+    }
+
+    public Task<DocumentDto> SetDocumentStatusAsync(Guid id, string status, CancellationToken ct = default)
+    {
+        var (tenantId, userId) = Ctx();
+        var normalized = (status ?? string.Empty).Trim().ToLowerInvariant();
+        if (normalized is not ("pending" or "verified" or "rejected"))
+            throw AppException.BadRequest("Estado de documento inválido.", new[] { "VAL_DOCUMENT_STATUS" });
+        return SqlExec.RunAsync(() => _repo.SetDocumentStatusAsync(tenantId, id, normalized, userId, ct));
     }
 
     public Task<IReadOnlyList<TimelineEventDto>> ListTimelineAsync(string entityType, Guid entityId, CancellationToken ct = default)

@@ -206,8 +206,21 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
     assignError(newErrors, 'directorEmail', validateEmail(form.directorEmail, false));
     assignError(newErrors, 'directorTelefono', validatePhone(form.directorTelefono, false, 'El teléfono del director'));
     assignError(newErrors, 'capacidadTotal', validatePositiveNumber(form.capacidadTotal, 'La capacidad'));
+    assignError(newErrors, 'superficie', validateTextFree(form.superficie, 50, 'Superficie', false));
+    if (form.superficie.trim() && !/\d/.test(form.superficie)) {
+      newErrors.superficie = 'Indica la superficie con un número (p. ej. 12500 m²)';
+    }
+    assignError(newErrors, 'niveles', validateTextFree(form.niveles, 200, 'Niveles educativos', false));
 
     if (!form.fechaApertura) newErrors.fechaApertura = 'La fecha de apertura es obligatoria';
+    else {
+      const d = new Date(`${form.fechaApertura}T00:00:00`);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (!Number.isNaN(d.getTime()) && d > today && form.estadoOperativo === 'Operando') {
+        newErrors.estadoOperativo = 'Con fecha futura usa “Próxima Apertura”, no “Operando”';
+      }
+    }
 
     if (tzMode === 'custom' && !form.timeZoneId) {
       newErrors.timeZoneId = 'Selecciona una zona o hereda de la institución';
@@ -333,7 +346,7 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
             <Input label="Ciudad" maxLength={FieldLimits.city} value={form.ciudad} onChange={(e) => handleChange('ciudad', e.target.value)} error={errors.ciudad} placeholder="Ej. Ciudad de México" />
             <Input label="Estado" maxLength={FieldLimits.state} value={form.estado} onChange={(e) => handleChange('estado', e.target.value)} error={errors.estado} placeholder="Ej. CDMX" />
             <Input label="Código Postal" maxLength={5} value={form.codigoPostal} onChange={(e) => handleChange('codigoPostal', e.target.value)} error={errors.codigoPostal} placeholder="07300" />
-            <Input label="Superficie" value={form.superficie} onChange={(e) => handleChange('superficie', e.target.value)} placeholder="Ej. 12,500 m²" />
+            <Input label="Superficie" value={form.superficie} onChange={(e) => handleChange('superficie', e.target.value)} error={errors.superficie} placeholder="Ej. 12,500 m²" />
             <Input label="Teléfono" type="tel" maxLength={FieldLimits.phone} value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
             <Input label="Email" type="email" maxLength={FieldLimits.email} value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="campus@SchoolCore.edu.mx" />
           </div>
@@ -363,6 +376,7 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
               value={form.estadoOperativo}
               onChange={(e) => handleChange('estadoOperativo', e.target.value)}
               options={estadosOperativos.map((e) => ({ value: e, label: e }))}
+              error={errors.estadoOperativo}
             />
             <Input label="Fecha de Apertura" type="date" required value={form.fechaApertura} onChange={(e) => handleChange('fechaApertura', e.target.value)} error={errors.fechaApertura} />
             <div className="sm:col-span-3">
@@ -372,6 +386,7 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
                 onChange={(e) => handleChange('niveles', e.target.value)}
                 placeholder="Ej. Secundaria, Preparatoria"
                 hint="Separa cada nivel con una coma"
+                error={errors.niveles}
               />
             </div>
           </div>

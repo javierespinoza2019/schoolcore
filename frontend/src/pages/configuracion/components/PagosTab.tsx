@@ -165,8 +165,12 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
     if (!conceptoForm.tipo) errs.tipo = 'Selecciona el tipo';
 
     if (conceptoForm.diferenciadoPorNivel) {
+      if (conceptoForm.montosPorNivel.length === 0) {
+        errs.diferenciado = 'No hay niveles educativos activos para asignar montos';
+      }
       conceptoForm.montosPorNivel.forEach((n) => {
-        if (!n.monto.trim() || parseFloat(n.monto) <= 0) {
+        const amount = parseFloat(n.monto);
+        if (!n.monto.trim() || !Number.isFinite(amount) || amount <= 0) {
           errs[`nivel-${n.nivelId}`] = `Ingresa el monto para ${n.nivelNombre}`;
         }
       });
@@ -190,9 +194,18 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
           nivelNombre: n.nivelNombre,
           monto: parseFloat(n.monto),
         }));
-        montoFinal = Math.min(...montosPorNivel.map((n) => n.monto));
+        const amounts = montosPorNivel.map((n) => n.monto).filter((n) => Number.isFinite(n) && n > 0);
+        if (amounts.length === 0) {
+          showToast('Ingresa al menos un monto válido por nivel', 'error');
+          return;
+        }
+        montoFinal = Math.min(...amounts);
       } else {
         montoFinal = parseFloat(conceptoForm.montoBase);
+        if (!Number.isFinite(montoFinal) || montoFinal <= 0) {
+          showToast('Ingresa un monto válido', 'error');
+          return;
+        }
         montosPorNivel = [];
       }
 
@@ -292,6 +305,10 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
 
   const toggleDiferenciado = (on: boolean) => {
     if (on) {
+      if (nivelesActivos.length === 0) {
+        showToast('Crea al menos un nivel educativo en Catálogos antes de diferenciar por nivel', 'error');
+        return;
+      }
       const montosPorNivel = nivelesActivos.map((n) => ({
         nivelId: n.id,
         nivelNombre: n.nombre,

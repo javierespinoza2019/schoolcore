@@ -12,6 +12,13 @@ export function isGuid(value: unknown): boolean {
   return GUID_RE.test(s);
 }
 
+/** Etiqueta visible: vacío si el valor es un GUID técnico. */
+export function humanLabel(value: unknown): string {
+  const s = String(value ?? '').trim();
+  if (!s || isGuid(s)) return '';
+  return s;
+}
+
 /**
  * Construye query string omitiendo undefined/null/''.
  * Para keys branchId / schoolCycleId / cycleId solo envía GUIDs válidos (nunca "0").

@@ -25,43 +25,44 @@ export default function Modal({ open, onClose, title, subtitle, children, size =
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key !== 'Tab' || !panelRef.current) return;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
-      const nodes = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) => !el.hasAttribute('disabled') && el.tabIndex !== -1 && !el.getAttribute('aria-hidden')
-      );
-      if (nodes.length === 0) {
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onCloseRef.current();
+      return;
+    }
+    if (e.key !== 'Tab' || !panelRef.current) return;
+
+    const nodes = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+      (el) => !el.hasAttribute('disabled') && el.tabIndex !== -1 && !el.getAttribute('aria-hidden')
+    );
+    if (nodes.length === 0) {
+      e.preventDefault();
+      panelRef.current.focus();
+      return;
+    }
+    const first = nodes[0];
+    const last = nodes[nodes.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey) {
+      if (active === first || !panelRef.current.contains(active)) {
         e.preventDefault();
-        panelRef.current.focus();
-        return;
+        last.focus();
       }
-      const first = nodes[0];
-      const last = nodes[nodes.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey) {
-        if (active === first || !panelRef.current.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    },
-    [onClose]
-  );
+    } else if (active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     document.addEventListener('keydown', handleKeyDown);
     document.body.style.overflow = 'hidden';
+    // Initial focus only when the dialog opens — not on every parent re-render (typing).
     const frame = window.requestAnimationFrame(() => {
       const first = panelRef.current?.querySelector<HTMLElement>(FOCUSABLE);
       (first ?? panelRef.current)?.focus();

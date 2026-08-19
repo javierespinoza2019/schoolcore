@@ -568,7 +568,7 @@ export default function Profesores() {
             <i className="ri-delete-bin-line text-sm" />
           </button>
           <button
-            onClick={(e) => { e.stopPropagation(); navigate(`/profesores/${row.id}`); }}
+              onClick={(e) => { e.stopPropagation(); if (isGuid(row.id)) navigate(`/profesores/${row.id}`); }}
             className="w-7 h-7 flex items-center justify-center rounded-md text-foreground-400 hover:text-primary-600 hover:bg-primary-50 transition-colors cursor-pointer"
             title="Ver perfil"
           >
@@ -733,7 +733,7 @@ export default function Profesores() {
               sortKey={sortKey}
               sortDir={sortDir}
               onSort={handleSort}
-              onRowClick={(row) => navigate(`/profesores/${row.id}`)}
+              onRowClick={(row) => { if (isGuid(row.id)) navigate(`/profesores/${row.id}`); }}
             />
 
             <Pagination
@@ -757,7 +757,7 @@ export default function Profesores() {
           footer={
             <>
               <Button variant="ghost" size="sm" onClick={() => setQuickViewProf(null)}>Cerrar</Button>
-              <Button variant="primary" size="sm" icon="ri-arrow-right-line" onClick={() => { if (quickViewProf) navigate(`/profesores/${quickViewProf.id}`); setQuickViewProf(null); }}>
+              <Button variant="primary" size="sm" icon="ri-arrow-right-line" onClick={() => { if (quickViewProf && isGuid(quickViewProf.id)) navigate(`/profesores/${quickViewProf.id}`); setQuickViewProf(null); }}>
                 Ver Perfil Completo
               </Button>
             </>

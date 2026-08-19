@@ -1,5 +1,5 @@
 import { apiClient } from '@/api/apiClient';
-import { buildQuery, fetchOrFallback, isGuid, unwrapList, unwrapTotalCount } from '@/api/helpers';
+import { buildQuery, fetchOrFallback, humanLabel, isGuid, unwrapList, unwrapTotalCount } from '@/api/helpers';
 import type { ApiResponse, FetchResult, PagedResult } from '@/api/types';
 import type { Salon, SalonGrupo } from '@/mocks/salones';
 import { salonesData } from '@/mocks/salones';
@@ -55,12 +55,13 @@ function parseGroups(raw: unknown): SalonGrupo[] | undefined {
     if (!Array.isArray(parsed)) return undefined;
     return parsed.map((g) => {
       const row = (g ?? {}) as Record<string, unknown>;
+      const profesorRaw = String(row.profesor ?? row.teacherId ?? '').trim();
       return {
         grupo: String(row.grupo ?? ''),
         grado: String(row.grado ?? ''),
-        nivel: String(row.nivel ?? ''),
+        nivel: humanLabel(row.educationLevelName ?? row.levelName ?? row.nivel),
         horario: String(row.horario ?? ''),
-        profesor: row.profesor ? String(row.profesor) : undefined,
+        profesor: profesorRaw && profesorRaw !== 'Sin asignar' ? profesorRaw : undefined,
       };
     });
   } catch {
@@ -79,18 +80,18 @@ export function normalizeClassroom(raw: unknown, branchNameFallback = ''): Salon
     educationLevelId: isGuid(r.educationLevelId) ? String(r.educationLevelId) : undefined,
     teacherId,
     nombre: String(r.name ?? r.nombre ?? ''),
-    nivel: String(r.educationLevelName ?? r.levelName ?? r.nivel ?? ''),
-    grado: String(r.grade ?? r.grado ?? ''),
-    grupo: String(r.groupCode ?? r.grupo ?? ''),
+    nivel: humanLabel(r.educationLevelName ?? r.levelName ?? r.nivel),
+    grado: humanLabel(r.grade ?? r.grado),
+    grupo: humanLabel(r.groupCode ?? r.grupo),
     capacidad: Number(r.capacity ?? r.capacidad ?? 0),
     ocupados: Number(r.occupied ?? r.ocupados ?? 0),
-    sucursal: String(r.branchName ?? r.sucursal ?? branchNameFallback),
+    sucursal: humanLabel(r.branchName ?? r.sucursal) || humanLabel(branchNameFallback),
     estado: fromApiStatus(String(r.status ?? r.estado ?? 'available')),
     tipo: asRoomType(String(r.roomType ?? r.tipo ?? 'Regular')),
     edificio: String(r.building ?? r.edificio ?? ''),
     piso: Number(r.floorNumber ?? r.piso ?? 0),
     equipamiento: parseEquipment(r),
-    profesorAsignado: teacherName || (teacherId ?? ''),
+    profesorAsignado: humanLabel(teacherName) || 'Sin asignar',
     horarioClase: String(r.scheduleNotes ?? r.horarioClase ?? ''),
     gruposAsignados: parseGroups(r.assignedGroupsJson ?? r.gruposAsignados),
   };

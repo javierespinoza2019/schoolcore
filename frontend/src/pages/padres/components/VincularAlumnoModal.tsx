@@ -9,6 +9,7 @@ import TeacherAvatar from '@/components/feature/TeacherAvatar';
 import type { Student } from '@/mocks/alumnos';
 import * as studentsApi from '@/api/studentsApi';
 import { queryKeys } from '@/api/queryKeys';
+import { isGuid } from '@/api/helpers';
 
 interface VincularAlumnoModalProps {
   open: boolean;
@@ -52,7 +53,7 @@ export default function VincularAlumnoModal({
     enabled: open,
   });
 
-  const students: Student[] = studentsQ.data ?? [];
+  const students: Student[] = (studentsQ.data ?? []).filter((s) => isGuid(s.id));
 
   useEffect(() => {
     setSearch('');

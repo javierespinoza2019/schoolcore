@@ -63,6 +63,7 @@ export default function AlumnoDetail() {
   const [unlinkTutorTarget, setUnlinkTutorTarget] = useState<StudentParent | null>(null);
   const [unlinkingParentId, setUnlinkingParentId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [verifyingDocumentId, setVerifyingDocumentId] = useState<string | null>(null);
 
   const studentQuery = useQuery({
     queryKey: queryKeys.students.detail(id),
@@ -224,9 +225,10 @@ export default function AlumnoDetail() {
     student.grade,
     student.group,
     student.branchName,
-    classrooms
+    classrooms,
+    student.branchId
   );
-  const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms);
+  const salon = getSalonDelAlumno(student.level, student.grade, student.group, student.branchName, classrooms, student.branchId);
 
   const handlePaymentRegistered = (_updatedStudent: Student) => {
     invalidate();
@@ -244,7 +246,7 @@ export default function AlumnoDetail() {
       email: formData.email.trim(),
       phone: formData.phone.trim(),
       birthDate: formData.birthDate,
-      gender: formData.gender as 'M' | 'F',
+      gender: formData.gender === 'F' ? 'F' : 'M',
       bloodType: formData.bloodType,
       address: formData.address.trim(),
       level: formData.level,
@@ -263,6 +265,7 @@ export default function AlumnoDetail() {
       schoolCycleId: student.schoolCycleId,
       classroomId: student.classroomId,
       scholarship: student.scholarship,
+      educationLevelId: isGuid(formData.educationLevelId) ? formData.educationLevelId : undefined,
     };
     try {
       const res = await studentsApi.updateStudent(student.id, payload);
@@ -301,6 +304,24 @@ export default function AlumnoDetail() {
 
   const handleDocumentUploaded = (_updatedStudent: Student) => {
     invalidate();
+  };
+
+  const handleVerifyDocumento = async (doc: { id: string; name: string }) => {
+    if (!isGuid(doc.id) || verifyingDocumentId) return;
+    setVerifyingDocumentId(doc.id);
+    try {
+      const res = await studentsApi.setDocumentStatus(doc.id, 'verified');
+      if (!res.success) {
+        showToast(res.message || 'No se pudo verificar el documento', 'error');
+        return;
+      }
+      showToast(`"${doc.name}" marcado como verificado`, 'success');
+      invalidate();
+    } catch {
+      showToast('Error de red al verificar el documento', 'error');
+    } finally {
+      setVerifyingDocumentId(null);
+    }
   };
 
   const handleTutorVinculado = (updatedStudent: Student) => {
@@ -429,7 +450,12 @@ export default function AlumnoDetail() {
       content: documentsQuery.isError ? (
         subResourceError('los documentos', () => void documentsQuery.refetch())
       ) : (
-        <DocumentosTab student={student} onUploadDocumento={() => setDocModalOpen(true)} />
+        <DocumentosTab
+          student={student}
+          onUploadDocumento={() => setDocModalOpen(true)}
+          onVerifyDocumento={(d) => void handleVerifyDocumento(d)}
+          verifyingDocumentId={verifyingDocumentId}
+        />
       ),
     },
     {
