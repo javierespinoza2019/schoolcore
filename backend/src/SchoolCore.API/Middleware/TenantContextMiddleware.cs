@@ -25,7 +25,12 @@ public sealed class TenantContextMiddleware
 
             if (Guid.TryParse(userIdValue, out var userId) && Guid.TryParse(tenantIdValue, out var tenantId))
             {
-                tenantContext.Set(tenantId, userId);
+                var roles = context.User.FindAll(ClaimTypes.Role).Select(c => c.Value).ToList();
+                var branchIds = context.User.FindAll(SchoolCoreClaimTypes.BranchId)
+                    .Select(c => Guid.TryParse(c.Value, out var id) ? id : Guid.Empty)
+                    .Where(id => id != Guid.Empty)
+                    .ToList();
+                tenantContext.Set(tenantId, userId, roles, branchIds);
             }
         }
 

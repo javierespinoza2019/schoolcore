@@ -37,6 +37,7 @@ public sealed class DashboardService : IDashboardService
     {
         _ = schoolCycleId;
         var (tenantId, _) = TenantGuard.Require(_tenant);
+        BranchAccess.EnsureQueryBranch(_tenant, branchId);
         var utcNow = DateTime.UtcNow;
         var monthStart = new DateTime(utcNow.Year, utcNow.Month, 1, 0, 0, 0, DateTimeKind.Utc);
         var from6 = monthStart.AddMonths(-5);

@@ -27,4 +27,7 @@ public static class MvpLoginRoles
 
     public static bool HasAllowedRole(IEnumerable<string> roles) =>
         roles.Any(r => Allowed.Contains(r));
+
+    public static bool IsSuperAdmin(IEnumerable<string>? roles) =>
+        roles is not null && roles.Any(r => string.Equals(r, "SuperAdmin", StringComparison.OrdinalIgnoreCase));
 }

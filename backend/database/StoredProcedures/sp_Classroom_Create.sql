@@ -17,6 +17,16 @@ AS BEGIN SET NOCOUNT ON;
         THROW 51002, 'Branch is required.', 1;
     IF NOT EXISTS (SELECT 1 FROM dbo.Branch WHERE Id=@BranchId AND TenantId=@TenantId AND IsDeleted=0)
         THROW 51003, 'Branch not found.', 1;
+    IF @TeacherId IS NOT NULL
+       AND NOT EXISTS (
+            SELECT 1 FROM dbo.Teacher t
+            WHERE t.Id=@TeacherId AND t.TenantId=@TenantId AND t.IsDeleted=0
+              AND (
+                    EXISTS (SELECT 1 FROM dbo.TeacherBranch tb WHERE tb.TeacherId=t.Id AND tb.BranchId=@BranchId)
+                    OR (NOT EXISTS (SELECT 1 FROM dbo.TeacherBranch tb0 WHERE tb0.TeacherId=t.Id) AND t.BranchId=@BranchId)
+                  )
+       )
+        THROW 51005, 'El profesor no está asignado a esta sucursal.', 1;
     INSERT INTO dbo.Classroom (Id,TenantId,BranchId,Name,EducationLevelId,Grade,GroupCode,Capacity,Occupied,RoomType,Building,FloorNumber,Status,TeacherId,ScheduleNotes,EquipmentJson,LevelName,AssignedTeacherName,AssignedGroupsJson,CreatedAt,CreatedBy)
     VALUES (@Id,@TenantId,@BranchId,@Name,@EducationLevelId,@Grade,@GroupCode,@Capacity,0,@RoomType,@Building,@FloorNumber,@Status,@TeacherId,@ScheduleNotes,@EquipmentJson,@LevelName,@AssignedTeacherName,@AssignedGroupsJson,SYSUTCDATETIME(),@CreatedBy);
     EXEC dbo.sp_Classroom_GetById @TenantId=@TenantId, @Id=@Id;

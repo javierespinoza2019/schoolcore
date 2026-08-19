@@ -148,24 +148,24 @@ export default function Profesores() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const { branch, branchOptions } = useSchoolContext();
+  const { branch, branchId, branchOptions } = useSchoolContext();
 
   const [data, setData] = useState<Profesor[]>([]);
   const [classrooms, setClassrooms] = useState<Salon[]>([]);
   const [studentsList, setStudentsList] = useState<Student[]>([]);
   const teachersQ = useApiResource({
-    queryKey: queryKeys.teachers.list({}),
-    queryFn: () => teachersApi.listTeachers({ pageSize: 100 }),
+    queryKey: queryKeys.teachers.list({ branchId }),
+    queryFn: () => teachersApi.listTeachers({ pageSize: 100, branchId }),
     errorToast: 'Error al cargar profesores',
   });
   const classroomsQ = useApiResource({
-    queryKey: queryKeys.classrooms.list({ for: 'profesores' }),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
+    queryKey: queryKeys.classrooms.list({ for: 'profesores', branchId }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100, branchId }),
     errorToast: 'Error al cargar salones',
   });
   const studentsQ = useApiResource({
-    queryKey: queryKeys.students.list({ for: 'profesores' }),
-    queryFn: () => studentsApi.listStudents({ pageSize: 500 }),
+    queryKey: queryKeys.students.list({ for: 'profesores', branchId }),
+    queryFn: () => studentsApi.listStudents({ pageSize: 500, branchId }),
     errorToast: 'Error al cargar alumnos',
   });
   useEffect(() => {
@@ -226,7 +226,7 @@ export default function Profesores() {
           p.especialidad.toLowerCase().includes(s)
       );
     }
-    if (sucursalFilter) filteredData = filteredData.filter((p) => p.sucursal === sucursalFilter);
+    if (sucursalFilter) filteredData = filteredData.filter((p) => p.sucursal.includes(sucursalFilter));
     if (nivelFilter) filteredData = filteredData.filter((p) => p.nivel === nivelFilter);
     if (estadoFilter) filteredData = filteredData.filter((p) => p.estado === estadoFilter);
     if (tipoPagoFilter) filteredData = filteredData.filter((p) => p.tipoPago === tipoPagoFilter);
@@ -375,8 +375,9 @@ export default function Profesores() {
     }
     const nombreCompleto = `${formData.firstName} ${formData.lastName}`.trim();
     setSaving(true);
-    const payload: Partial<Profesor> & { branchId: string; firstName: string; lastName: string } = {
+    const payload: Partial<Profesor> & { branchId: string; branchIds: string[]; firstName: string; lastName: string } = {
       branchId: formData.sucursal,
+      branchIds: formData.branchIds,
       firstName: formData.firstName.trim(),
       lastName: formData.lastName.trim(),
       nombre: nombreCompleto,

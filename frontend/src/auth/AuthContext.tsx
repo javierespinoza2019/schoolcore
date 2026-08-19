@@ -25,6 +25,8 @@ interface AuthContextValue {
   isLoading: boolean;
   login: (credentials: LoginRequest) => Promise<{ ok: boolean; message?: string }>;
   logout: () => Promise<void>;
+  /** Relee access+refresh y actualiza el usuario en sesión (p.ej. tras editar sucursales propias). */
+  reloadSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -68,6 +70,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const reloadSession = useCallback(async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return;
+    const res = await authApi.refresh({ refreshToken });
+    if (!res.success || !res.data?.accessToken || !res.data?.refreshToken) return;
+    setTokens(res.data.accessToken, res.data.refreshToken);
+    const authUser = toAuthUser(res.data);
+    setStoredUser(authUser);
+    setUser(authUser);
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -75,8 +88,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isLoading,
       login,
       logout,
+      reloadSession,
     }),
-    [user, isLoading, login, logout]
+    [user, isLoading, login, logout, reloadSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

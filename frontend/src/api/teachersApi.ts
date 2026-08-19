@@ -53,9 +53,22 @@ export function normalizeTeacher(raw: unknown): Profesor {
     String(r.nombre ?? '').trim() ||
     [firstName, lastName].filter(Boolean).join(' ').trim();
 
+  const branchRows = Array.isArray(r.branches) ? (r.branches as Record<string, unknown>[]) : [];
+  const branchIds = [
+    ...branchRows.map((b) => String(b.branchId ?? b.id ?? '')),
+    ...(Array.isArray(r.branchIds) ? (r.branchIds as unknown[]).map(String) : []),
+  ].filter((id) => isGuid(id));
+  const uniqueBranchIds = [...new Set(branchIds)];
+  const branchNames = branchRows.map((b) => String(b.branchName ?? b.name ?? '').trim()).filter(Boolean);
+  const sucursal =
+    branchNames.length > 0
+      ? branchNames.join(', ')
+      : String(r.branchName ?? r.sucursal ?? '');
+
   return {
     id: String(r.id ?? ''),
-    branchId: isGuid(r.branchId) ? String(r.branchId) : undefined,
+    branchId: isGuid(r.branchId) ? String(r.branchId) : uniqueBranchIds[0],
+    branchIds: uniqueBranchIds,
     educationLevelId: isGuid(r.educationLevelId) ? String(r.educationLevelId) : undefined,
     firstName: firstName || undefined,
     lastName: lastName || undefined,
@@ -66,7 +79,7 @@ export function normalizeTeacher(raw: unknown): Profesor {
     materias: parseSubjects(r.subjectsJson ?? r.materias),
     tipoPago: String(r.employmentType ?? r.tipoPago ?? 'Nómina') || 'Nómina',
     salarioMensual: Number(r.monthlySalary ?? r.salarioMensual ?? 0),
-    sucursal: String(r.branchName ?? r.sucursal ?? ''),
+    sucursal,
     nivel: String(r.educationLevelName ?? r.levelName ?? r.nivel ?? ''),
     estado: fromApiStatus(String(r.status ?? r.estado ?? 'active')),
     fechaIngreso: asDateInput(r.hireDate ?? r.fechaIngreso),
@@ -78,12 +91,14 @@ export function normalizeTeacher(raw: unknown): Profesor {
   };
 }
 
-function toTeacherUpsert(payload: Partial<Profesor> & { branchId?: string; firstName?: string; lastName?: string }) {
+function toTeacherUpsert(payload: Partial<Profesor> & { branchId?: string; branchIds?: string[]; firstName?: string; lastName?: string }) {
   const first = payload.firstName?.trim();
   const last = payload.lastName?.trim();
   const split = !first || !last ? String(payload.nombre ?? '').trim().split(/\s+/) : [];
+  const branchIds = (payload.branchIds ?? []).filter((id) => isGuid(id));
   return {
     branchId: payload.branchId,
+    branchIds,
     firstName: first || split.slice(0, -1).join(' ') || split[0] || '',
     lastName: last || (split.length > 1 ? split[split.length - 1] : ''),
     email: payload.email || null,
@@ -159,7 +174,7 @@ export async function getTeacher(id: string | number): Promise<ApiResponse<Profe
 }
 
 export async function createTeacher(
-  payload: Partial<Profesor> & { branchId?: string; firstName?: string; lastName?: string }
+  payload: Partial<Profesor> & { branchId?: string; branchIds?: string[]; firstName?: string; lastName?: string }
 ): Promise<ApiResponse<Profesor>> {
   const res = await apiClient<unknown>('/teachers', { method: 'POST', body: toTeacherUpsert(payload) });
   if (res.success && res.data) return { ...res, data: normalizeTeacher(res.data) };
@@ -168,7 +183,7 @@ export async function createTeacher(
 
 export async function updateTeacher(
   id: string | number,
-  payload: Partial<Profesor> & { branchId?: string; firstName?: string; lastName?: string }
+  payload: Partial<Profesor> & { branchId?: string; branchIds?: string[]; firstName?: string; lastName?: string }
 ): Promise<ApiResponse<Profesor>> {
   const res = await apiClient<unknown>(`/teachers/${id}`, { method: 'PUT', body: toTeacherUpsert(payload) });
   if (res.success && res.data) return { ...res, data: normalizeTeacher(res.data) };

@@ -12,8 +12,13 @@ import type { UsuarioSistema } from '@/mocks/usuarios';
 import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as settingsApi from '@/api/settingsApi';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { useSchoolContext } from '@/context/SchoolContext';
+import { useAuth } from '@/auth/AuthContext';
+import { isSuperAdminRole } from '@/lib/auth/roles';
+import BranchCheckboxGroup from '@/components/feature/BranchCheckboxGroup';
+import { listBranches } from '@/api/branchesApi';
+import { isGuid } from '@/api/helpers';
 import { FieldLimits, assignError, validateEmail, validateField, validatePassword } from '@/lib/validation/fields';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
@@ -59,6 +64,24 @@ export default function UsuariosTab() {
   const [usuarios, setUsuarios] = useState<UsuarioSistema[]>([]);
   const [roleOptions, setRoleOptions] = useState(rolesPermisos);
   const { branchId } = useSchoolContext();
+  const { user, reloadSession } = useAuth();
+  const operatorIsSuperAdmin = isSuperAdminRole(user?.roles);
+  const branchesQ = useQuery({
+    queryKey: queryKeys.branches.list(),
+    queryFn: () => listBranches({ pageSize: 100 }),
+  });
+  const allBranchOptions = useMemo(
+    () =>
+      (branchesQ.data?.data ?? [])
+        .filter((b) => isGuid(b.id))
+        .map((b) => ({ id: String(b.id), name: b.nombre })),
+    [branchesQ.data]
+  );
+  const assignableBranches = useMemo(() => {
+    if (operatorIsSuperAdmin) return allBranchOptions;
+    const allowed = new Set(user?.branchIds ?? []);
+    return allBranchOptions.filter((b) => allowed.has(b.id));
+  }, [allBranchOptions, operatorIsSuperAdmin, user?.branchIds]);
   const usersQ = useApiResource({
     queryKey: queryKeys.settings.users(),
     queryFn: () => settingsApi.listUsers(),
@@ -94,7 +117,7 @@ export default function UsuariosTab() {
   const [formNombre, setFormNombre] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formRolId, setFormRolId] = useState('');
-  const [formSucursal, setFormSucursal] = useState('');
+  const [formBranchIds, setFormBranchIds] = useState<string[]>([]);
   const [formPassword, setFormPassword] = useState('');
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -116,7 +139,7 @@ export default function UsuariosTab() {
     setFormNombre('');
     setFormEmail('');
     setFormRolId('');
-    setFormSucursal('');
+    setFormBranchIds(isGuid(branchId) ? [branchId!] : []);
     setFormPassword('');
     setFormErrors({});
     setEditingUser(null);
@@ -132,7 +155,7 @@ export default function UsuariosTab() {
     setFormNombre(u.nombre);
     setFormEmail(u.email);
     setFormRolId(u.rolId);
-    setFormSucursal(u.sucursal);
+    setFormBranchIds(isSuperAdminRole(u.rolId) ? [] : (u.branchIds ?? []).filter((id) => isGuid(id)));
     setFormPassword('');
     setFormErrors({});
     setModalOpen(true);
@@ -145,6 +168,10 @@ export default function UsuariosTab() {
     const emailErr = validateEmail(formEmail, true);
     if (emailErr) errs.email = emailErr;
     if (!formRolId) errs.rol = 'Selecciona un rol';
+    const targetIsSuperAdmin = isSuperAdminRole(formRolId);
+    if (!targetIsSuperAdmin && formBranchIds.filter((id) => isGuid(id)).length === 0) {
+      errs.sucursales = 'Selecciona al menos una sucursal';
+    }
     if (!editingUser) {
       const pwdErr = validatePassword(formPassword);
       if (pwdErr) errs.password = pwdErr;
@@ -157,6 +184,7 @@ export default function UsuariosTab() {
 
     setSaving(true);
     try {
+      const branchPayload = targetIsSuperAdmin ? [] : formBranchIds.filter((id) => isGuid(id));
       if (editingUser) {
         const res = await settingsApi.updateUser(editingUser.id, {
           nombre: formNombre.trim(),
@@ -164,13 +192,16 @@ export default function UsuariosTab() {
           rolId: formRolId,
           roleCodes: [formRolId],
           activo: editingUser.activo,
-          branchIds: branchId ? [branchId] : undefined,
+          branchIds: branchPayload,
         });
         if (!res.success) {
           showToast(res.message || res.errors?.[0] || 'No se pudo actualizar el usuario', 'error');
           return;
         }
         showToast('Usuario actualizado correctamente', 'success');
+        if (user?.id === editingUser.id) {
+          await reloadSession();
+        }
       } else {
         const res = await settingsApi.createUser({
           nombre: formNombre.trim(),
@@ -179,7 +210,7 @@ export default function UsuariosTab() {
           rolId: formRolId,
           roleCodes: [formRolId],
           activo: true,
-          branchIds: branchId ? [branchId] : [],
+          branchIds: branchPayload,
         });
         if (!res.success) {
           showToast(res.message || res.errors?.[0] || 'No se pudo crear el usuario', 'error');
@@ -353,10 +384,36 @@ export default function UsuariosTab() {
             required
             options={[{ value: '', label: 'Seleccionar rol...' }, ...roleOptions.map((r) => ({ value: roleSelectValue(r), label: r.nombre }))]}
             value={formRolId}
-            onChange={(e) => { setFormRolId(e.target.value); if (formErrors.rol) setFormErrors((p) => { const n = { ...p }; delete n.rol; return n; }); }}
+            onChange={(e) => {
+              const next = e.target.value;
+              setFormRolId(next);
+              if (formErrors.rol) setFormErrors((p) => { const n = { ...p }; delete n.rol; return n; });
+              if (isSuperAdminRole(next)) {
+                setFormBranchIds([]);
+              } else if (formBranchIds.length === 0 && isGuid(branchId)) {
+                setFormBranchIds([branchId!]);
+              }
+            }}
             error={formErrors.rol}
           />
-          <Input label="Sucursal" value={formSucursal} onChange={(e) => setFormSucursal(e.target.value)} placeholder="Se asigna la sucursal activa del contexto" disabled hint={branchId ? 'Se vinculará a la sucursal activa' : 'Sin sucursal activa en el contexto'} />
+          {isSuperAdminRole(formRolId) ? (
+            <p className="text-xs text-foreground-500 rounded-lg border border-secondary-200/70 bg-secondary-50 px-3 py-2">
+              Super Admin opera en todas las sucursales del colegio. No se asignan campus.
+            </p>
+          ) : (
+            <BranchCheckboxGroup
+              label="Sucursales"
+              required
+              options={assignableBranches}
+              value={formBranchIds}
+              onChange={(ids) => {
+                setFormBranchIds(ids);
+                if (formErrors.sucursales) setFormErrors((p) => { const n = { ...p }; delete n.sucursales; return n; });
+              }}
+              error={formErrors.sucursales}
+              hint="Por defecto la sucursal activa. Puedes agregar más."
+            />
+          )}
           {!editingUser && (
             <Input
               label="Contraseña Temporal"

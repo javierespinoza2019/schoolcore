@@ -138,11 +138,6 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
     queryFn: () => listBranches({ pageSize: 100 }),
     enabled: open,
   });
-  const teachersQ = useQuery({
-    queryKey: queryKeys.teachers.list({ pageSize: 100 }),
-    queryFn: () => listTeachers({ pageSize: 100 }),
-    enabled: open,
-  });
   const levelsQ = useQuery({
     queryKey: queryKeys.settings.catalogs(),
     queryFn: () => listEducationLevels(),
@@ -171,44 +166,6 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
     const names = [...new Set([...nivelesFallback, ...fromApi])];
     return names.map((n) => ({ value: n, label: n }));
   }, [levelsQ.data]);
-
-  const profesorOptions = useMemo(() => {
-    const options = [
-      { value: '', label: 'Sin asignar / opcional' },
-    ];
-    const seen = new Set<string>(['']);
-    for (const t of teachersQ.data?.data ?? []) {
-      const id = String(t.id ?? '');
-      const name = String(t.nombre ?? '').trim();
-      const value = isGuid(id) ? id : name;
-      if (!value || seen.has(value)) continue;
-      seen.add(value);
-      options.push({ value, label: name || value });
-    }
-    // Include current assignment (GUID or legacy name) so edit mode stays coherent.
-    const seeded = [
-      salon?.teacherId,
-      salon?.profesorAsignado,
-      ...(salon?.gruposAsignados ?? []).map((g) => g.profesor),
-    ].filter((v): v is string => Boolean(v && v !== 'Sin asignar'));
-    for (const current of seeded) {
-      if (seen.has(current)) continue;
-      seen.add(current);
-      options.push({
-        value: current,
-        label: isGuid(current) ? 'Profesor asignado' : current,
-      });
-    }
-    return options;
-  }, [teachersQ.data, salon]);
-
-  const profesorLabelByValue = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const opt of profesorOptions) {
-      if (opt.value) map.set(opt.value, opt.label);
-    }
-    return map;
-  }, [profesorOptions]);
 
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<SalonFormData>(emptyForm);
@@ -256,6 +213,50 @@ export default function SalonFormModal({ open, onClose, onSave, salon, saving = 
     // Intentionally only reset when opening / switching salon (not when branch options load).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [salon, open]);
+
+  const teacherListBranchId = isGuid(form.sucursal) ? form.sucursal : branchId;
+  const teachersQ = useQuery({
+    queryKey: queryKeys.teachers.list({ pageSize: 100, branchId: teacherListBranchId }),
+    queryFn: () => listTeachers({ pageSize: 100, branchId: teacherListBranchId || undefined }),
+    enabled: open && Boolean(teacherListBranchId),
+  });
+
+  const profesorOptions = useMemo(() => {
+    const options = [
+      { value: '', label: 'Sin asignar / opcional' },
+    ];
+    const seen = new Set<string>(['']);
+    for (const t of teachersQ.data?.data ?? []) {
+      const id = String(t.id ?? '');
+      const name = String(t.nombre ?? '').trim();
+      const value = isGuid(id) ? id : name;
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      options.push({ value, label: name || value });
+    }
+    const seeded = [
+      salon?.teacherId,
+      salon?.profesorAsignado,
+      ...(salon?.gruposAsignados ?? []).map((g) => g.profesor),
+    ].filter((v): v is string => Boolean(v && v !== 'Sin asignar'));
+    for (const current of seeded) {
+      if (seen.has(current)) continue;
+      seen.add(current);
+      options.push({
+        value: current,
+        label: isGuid(current) ? 'Profesor asignado' : current,
+      });
+    }
+    return options;
+  }, [teachersQ.data, salon]);
+
+  const profesorLabelByValue = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const opt of profesorOptions) {
+      if (opt.value) map.set(opt.value, opt.label);
+    }
+    return map;
+  }, [profesorOptions]);
 
   const handleChange = (field: keyof SalonFormData, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));

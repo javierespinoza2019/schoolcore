@@ -102,6 +102,7 @@ public sealed class PeopleService : IPeopleService
     public async Task<PagedResult<StudentDto>> ListStudentsAsync(Guid? branchId, string? status, PagedRequest paging, string? search, CancellationToken ct = default)
     {
         var (tenantId, _) = Ctx();
+        BranchAccess.EnsureQueryBranch(_tenant, branchId);
         paging.Normalize(100);
         return await _repo.ListStudentsAsync(tenantId, branchId, status, paging.Page, paging.PageSize, search, ct);
     }
@@ -109,14 +110,17 @@ public sealed class PeopleService : IPeopleService
     public async Task<StudentDto> GetStudentAsync(Guid id, CancellationToken ct = default)
     {
         var (tenantId, _) = Ctx();
-        return await _repo.GetStudentAsync(tenantId, id, ct)
+        var student = await _repo.GetStudentAsync(tenantId, id, ct)
             ?? throw AppException.NotFound(InteractionMessages.Text("NOT_FOUND_STUDENT"));
+        BranchAccess.EnsureCanAccess(_tenant, student.BranchId);
+        return student;
     }
 
     public Task<StudentDto> CreateStudentAsync(StudentUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
         ValidateStudent(request);
+        BranchAccess.EnsureCanAccess(_tenant, request.BranchId);
         return SqlExec.RunAsync(() => _repo.CreateStudentAsync(tenantId, Guid.NewGuid(), request, userId, ct));
     }
 
@@ -124,6 +128,7 @@ public sealed class PeopleService : IPeopleService
     {
         var (tenantId, userId) = Ctx();
         ValidateStudent(request);
+        BranchAccess.EnsureCanAccess(_tenant, request.BranchId);
         return SqlExec.RunAsync(() => _repo.UpdateStudentAsync(tenantId, id, request, userId, ct));
     }
 
@@ -355,33 +360,61 @@ public sealed class AcademicService : IAcademicService
     private (Guid TenantId, Guid UserId) Ctx() => TenantGuard.Require(_tenant);
 
     public async Task<PagedResult<TeacherDto>> ListTeachersAsync(Guid? branchId, PagedRequest paging, string? search, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(100); return await _repo.ListTeachersAsync(t, branchId, paging.Page, paging.PageSize, search, ct); }
+    {
+        var (t, _) = Ctx();
+        BranchAccess.EnsureQueryBranch(_tenant, branchId);
+        paging.Normalize(100);
+        return await _repo.ListTeachersAsync(t, branchId, paging.Page, paging.PageSize, search, ct);
+    }
     public async Task<TeacherDto> GetTeacherAsync(Guid id, CancellationToken ct = default)
-    { var (t, _) = Ctx(); return await _repo.GetTeacherAsync(t, id, ct) ?? throw AppException.NotFound("Teacher not found."); }
-    public Task<TeacherDto> CreateTeacherAsync(TeacherUpsertRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); ValidateTeacher(request); return SqlExec.RunAsync(() => _repo.CreateTeacherAsync(t, Guid.NewGuid(), request, u, ct)); }
-    public Task<TeacherDto> UpdateTeacherAsync(Guid id, TeacherUpsertRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); ValidateTeacher(request); return SqlExec.RunAsync(() => _repo.UpdateTeacherAsync(t, id, request, u, ct)); }
+    {
+        var (t, _) = Ctx();
+        var teacher = await _repo.GetTeacherAsync(t, id, ct) ?? throw AppException.NotFound("Teacher not found.");
+        EnsureTeacherVisible(teacher);
+        return teacher;
+    }
+    public async Task<TeacherDto> CreateTeacherAsync(TeacherUpsertRequest request, CancellationToken ct = default)
+    {
+        var (t, u) = Ctx();
+        var branchIds = ResolveTeacherBranchIds(request);
+        request.BranchId = branchIds.Contains(request.BranchId) ? request.BranchId : branchIds[0];
+        ValidateTeacher(request);
+        BranchAccess.EnsureCanAssign(_tenant, branchIds);
+        var created = await SqlExec.RunAsync(() => _repo.CreateTeacherAsync(t, Guid.NewGuid(), request, u, ct));
+        await SqlExec.RunAsync(() => _repo.SetTeacherBranchesAsync(t, created.Id, branchIds, ct));
+        return await GetTeacherAsync(created.Id, ct);
+    }
+    public async Task<TeacherDto> UpdateTeacherAsync(Guid id, TeacherUpsertRequest request, CancellationToken ct = default)
+    {
+        var (t, u) = Ctx();
+        var branchIds = ResolveTeacherBranchIds(request);
+        request.BranchId = branchIds.Contains(request.BranchId) ? request.BranchId : branchIds[0];
+        ValidateTeacher(request);
+        BranchAccess.EnsureCanAssign(_tenant, branchIds);
+        await SqlExec.RunAsync(() => _repo.UpdateTeacherAsync(t, id, request, u, ct));
+        await SqlExec.RunAsync(() => _repo.SetTeacherBranchesAsync(t, id, branchIds, ct));
+        return await GetTeacherAsync(id, ct);
+    }
     public Task DeleteTeacherAsync(Guid id, CancellationToken ct = default)
     { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.SoftDeleteTeacherAsync(t, id, u, ct)); }
 
     public async Task<PagedResult<ClassroomDto>> ListClassroomsAsync(Guid? branchId, PagedRequest paging, string? search, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(100); return await _repo.ListClassroomsAsync(t, branchId, paging.Page, paging.PageSize, search, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); paging.Normalize(100); return await _repo.ListClassroomsAsync(t, branchId, paging.Page, paging.PageSize, search, ct); }
     public async Task<ClassroomDto> GetClassroomAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetClassroomAsync(t, id, ct) ?? throw AppException.NotFound("Classroom not found."); }
     public Task<ClassroomDto> CreateClassroomAsync(ClassroomUpsertRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); ValidateClassroom(request); return SqlExec.RunAsync(() => _repo.CreateClassroomAsync(t, Guid.NewGuid(), request, u, ct)); }
+    { var (t, u) = Ctx(); ValidateClassroom(request); BranchAccess.EnsureCanAccess(_tenant, request.BranchId); return SqlExec.RunAsync(() => _repo.CreateClassroomAsync(t, Guid.NewGuid(), request, u, ct)); }
     public Task<ClassroomDto> UpdateClassroomAsync(Guid id, ClassroomUpsertRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); ValidateClassroom(request); return SqlExec.RunAsync(() => _repo.UpdateClassroomAsync(t, id, request, u, ct)); }
+    { var (t, u) = Ctx(); ValidateClassroom(request); BranchAccess.EnsureCanAccess(_tenant, request.BranchId); return SqlExec.RunAsync(() => _repo.UpdateClassroomAsync(t, id, request, u, ct)); }
     public Task DeleteClassroomAsync(Guid id, CancellationToken ct = default)
     { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.SoftDeleteClassroomAsync(t, id, u, ct)); }
 
     public async Task<PagedResult<EnrollmentDto>> ListEnrollmentsAsync(Guid? branchId, string? status, PagedRequest paging, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(); return await _repo.ListEnrollmentsAsync(t, branchId, status, paging.Page, paging.PageSize, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); paging.Normalize(); return await _repo.ListEnrollmentsAsync(t, branchId, status, paging.Page, paging.PageSize, ct); }
     public async Task<EnrollmentDto> GetEnrollmentAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetEnrollmentAsync(t, id, ct) ?? throw AppException.NotFound("Enrollment not found."); }
     public Task<EnrollmentDto> CreateEnrollmentAsync(CreateEnrollmentRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); ValidateEnrollmentCreate(request); return SqlExec.RunAsync(() => _repo.CreateEnrollmentAsync(t, Guid.NewGuid(), request, u, ct)); }
+    { var (t, u) = Ctx(); ValidateEnrollmentCreate(request); BranchAccess.EnsureCanAccess(_tenant, request.BranchId); return SqlExec.RunAsync(() => _repo.CreateEnrollmentAsync(t, Guid.NewGuid(), request, u, ct)); }
     public Task<EnrollmentDto> SaveEnrollmentWizardAsync(Guid id, SaveEnrollmentWizardRequest request, CancellationToken ct = default)
     { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.SaveEnrollmentWizardAsync(t, id, request, u, ct)); }
     public Task<EnrollmentDto> CompleteEnrollmentAsync(Guid id, CompleteEnrollmentRequest request, CancellationToken ct = default)
@@ -446,6 +479,31 @@ public sealed class AcademicService : IAcademicService
             FieldValidator.TextFree(request.ScheduleNotes, FieldStandards.ScheduleNotesMax, "Horario"),
             FieldValidator.TextFree(request.LevelName, FieldStandards.LevelNameMax, "Nivel"));
     }
+
+    private void EnsureTeacherVisible(TeacherDto teacher)
+    {
+        if (BranchAccess.IsSuperAdmin(_tenant)) return;
+        var assigned = teacher.Branches.Select(b => b.BranchId).ToHashSet();
+        if (assigned.Count == 0) assigned.Add(teacher.BranchId);
+        if (!assigned.Overlaps(_tenant.BranchIds))
+            throw AppException.Forbidden("No tienes acceso a esta sucursal.");
+    }
+
+    private static List<Guid> ResolveTeacherBranchIds(TeacherUpsertRequest request)
+    {
+        var ids = (request.BranchIds ?? Array.Empty<Guid>())
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
+        if (request.BranchId != Guid.Empty && !ids.Contains(request.BranchId))
+            ids.Insert(0, request.BranchId);
+        if (ids.Count == 0)
+        {
+            var (msg, errs) = InteractionMessages.Error(InteractionMessages.CtxNoBranch);
+            throw AppException.BadRequest(msg, errs);
+        }
+        return ids;
+    }
 }
 
 public interface IFinanceService
@@ -478,7 +536,7 @@ public sealed class FinanceService : IFinanceService
     private (Guid TenantId, Guid UserId) Ctx() => TenantGuard.Require(_tenant);
 
     public async Task<PagedResult<ChargeDto>> ListChargesAsync(Guid? branchId, Guid? studentId, string? status, PagedRequest paging, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(); return await _repo.ListChargesAsync(t, branchId, studentId, status, paging.Page, paging.PageSize, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); paging.Normalize(); return await _repo.ListChargesAsync(t, branchId, studentId, status, paging.Page, paging.PageSize, ct); }
     public async Task<ChargeDto> GetChargeAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetChargeAsync(t, id, ct) ?? throw AppException.NotFound("Charge not found."); }
     public Task<ChargeDto> CreateChargeAsync(CreateChargeRequest request, CancellationToken ct = default)
@@ -489,10 +547,11 @@ public sealed class FinanceService : IFinanceService
             var (msg, errs) = InteractionMessages.Error("CHARGE_AMOUNT");
             throw AppException.BadRequest(msg, errs);
         }
+        BranchAccess.EnsureCanAccess(_tenant, request.BranchId);
         return SqlExec.RunAsync(() => _repo.CreateChargeAsync(t, Guid.NewGuid(), request, u, ct));
     }
     public async Task<PagedResult<PaymentDto>> ListPaymentsAsync(Guid? branchId, Guid? studentId, PagedRequest paging, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(); return await _repo.ListPaymentsAsync(t, branchId, studentId, paging.Page, paging.PageSize, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); paging.Normalize(); return await _repo.ListPaymentsAsync(t, branchId, studentId, paging.Page, paging.PageSize, ct); }
     public async Task<PaymentDto> GetPaymentAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetPaymentAsync(t, id, ct) ?? throw AppException.NotFound("Payment not found."); }
     public Task<PaymentDto> CreatePaymentAsync(CreatePaymentRequest request, CancellationToken ct = default)
@@ -506,6 +565,7 @@ public sealed class FinanceService : IFinanceService
         FieldValidator.ThrowIfInvalid(
             FieldValidator.TextFree(request.Notes, FieldStandards.PaymentNotesMax, "Notas"),
             FieldValidator.TextFree(request.Reference, FieldStandards.ReferenceMax, "Referencia"));
+        BranchAccess.EnsureCanAccess(_tenant, request.BranchId);
         return SqlExec.RunAsync(() => _repo.CreatePaymentAsync(t, Guid.NewGuid(), request, u, ct));
     }
 
@@ -522,7 +582,7 @@ public sealed class FinanceService : IFinanceService
         return SqlExec.RunAsync(() => _repo.ReversePaymentAsync(t, id, request, u, ct));
     }
     public async Task<PagedResult<ExpenseDto>> ListExpensesAsync(Guid? branchId, PagedRequest paging, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(); return await _repo.ListExpensesAsync(t, branchId, paging.Page, paging.PageSize, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); paging.Normalize(); return await _repo.ListExpensesAsync(t, branchId, paging.Page, paging.PageSize, ct); }
     public Task<ExpenseDto> CreateExpenseAsync(CreateExpenseRequest request, CancellationToken ct = default)
     {
         var (t, u) = Ctx();
@@ -530,6 +590,7 @@ public sealed class FinanceService : IFinanceService
             FieldValidator.TextFree(request.Concept, FieldStandards.ExpenseConceptMax, "Concepto", required: true, minLen: 1),
             FieldValidator.PositiveAmount(request.Amount),
             FieldValidator.TextFree(request.Reference, FieldStandards.ReferenceMax, "Referencia"));
+        BranchAccess.EnsureCanAccess(_tenant, request.BranchId);
         return SqlExec.RunAsync(() => _repo.CreateExpenseAsync(t, Guid.NewGuid(), request, u, ct));
     }
     public Task DeleteExpenseAsync(Guid id, CancellationToken ct = default)
@@ -540,14 +601,15 @@ public sealed class FinanceService : IFinanceService
         FieldValidator.ThrowIfInvalid(
             request.OpeningAmount < 0 ? "El monto inicial no puede ser negativo." : null,
             FieldValidator.TextFree(request.Notes, FieldStandards.CashNotesMax, "Notas"));
+        BranchAccess.EnsureCanAccess(_tenant, request.BranchId);
         return SqlExec.RunAsync(() => _repo.OpenCashSessionAsync(t, Guid.NewGuid(), u, request, u, ct));
     }
     public async Task<CashSessionDto> GetCashSessionAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetCashSessionAsync(t, id, ct) ?? throw AppException.NotFound("Cash session not found."); }
     public Task<CashSessionDto?> GetOpenCashSessionAsync(Guid branchId, string? shift, CancellationToken ct = default)
-    { var (t, u) = Ctx(); return _repo.GetOpenCashSessionAsync(t, branchId, u, shift, ct); }
+    { var (t, u) = Ctx(); BranchAccess.EnsureCanAccess(_tenant, branchId); return _repo.GetOpenCashSessionAsync(t, branchId, u, shift, ct); }
     public async Task<PagedResult<CashSessionDto>> ListCashSessionsAsync(Guid? branchId, PagedRequest paging, CancellationToken ct = default)
-    { var (t, _) = Ctx(); paging.Normalize(); return await _repo.ListCashSessionsAsync(t, branchId, paging.Page, paging.PageSize, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); paging.Normalize(); return await _repo.ListCashSessionsAsync(t, branchId, paging.Page, paging.PageSize, ct); }
     public Task<CashSessionDto> CloseCashSessionAsync(Guid id, CloseCashSessionRequest request, CancellationToken ct = default)
     { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.CloseCashSessionAsync(t, id, request.Notes, u, ct)); }
     public Task<IReadOnlyList<CashMovementDto>> ListMovementsAsync(Guid sessionId, CancellationToken ct = default)
@@ -583,17 +645,23 @@ public sealed class ReportService : IReportService
     private (Guid TenantId, Guid UserId) Ctx() => TenantGuard.Require(_tenant);
 
     public Task<IReadOnlyList<IncomeExpenseRow>> IncomeExpenseAsync(Guid? branchId, DateTime from, DateTime to, CancellationToken ct = default)
-    { var (t, _) = Ctx(); return _repo.IncomeExpenseAsync(t, branchId, from, to, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); return _repo.IncomeExpenseAsync(t, branchId, from, to, ct); }
     public Task<EnrollmentReportDto> EnrollmentAsync(Guid? branchId, Guid? schoolCycleId, CancellationToken ct = default)
-    { var (t, _) = Ctx(); return _repo.EnrollmentAsync(t, branchId, schoolCycleId, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); return _repo.EnrollmentAsync(t, branchId, schoolCycleId, ct); }
     public Task<MorosityReportDto> MorosityAsync(Guid? branchId, CancellationToken ct = default)
-    { var (t, _) = Ctx(); return _repo.MorosityAsync(t, branchId, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); return _repo.MorosityAsync(t, branchId, ct); }
     public Task<IReadOnlyList<PaymentMethodReportRow>> PaymentMethodsAsync(Guid? branchId, DateTime from, DateTime to, CancellationToken ct = default)
-    { var (t, _) = Ctx(); return _repo.PaymentMethodsAsync(t, branchId, from, to, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); return _repo.PaymentMethodsAsync(t, branchId, from, to, ct); }
     public Task<IReadOnlyList<ConceptReportRow>> ConceptsAsync(Guid? branchId, DateTime from, DateTime to, CancellationToken ct = default)
-    { var (t, _) = Ctx(); return _repo.ConceptsAsync(t, branchId, from, to, ct); }
-    public Task<IReadOnlyList<BranchReportRow>> ByBranchAsync(DateTime from, DateTime to, CancellationToken ct = default)
-    { var (t, _) = Ctx(); return _repo.ByBranchAsync(t, from, to, ct); }
+    { var (t, _) = Ctx(); BranchAccess.EnsureQueryBranch(_tenant, branchId); return _repo.ConceptsAsync(t, branchId, from, to, ct); }
+    public async Task<IReadOnlyList<BranchReportRow>> ByBranchAsync(DateTime from, DateTime to, CancellationToken ct = default)
+    {
+        var (t, _) = Ctx();
+        var rows = await _repo.ByBranchAsync(t, from, to, ct);
+        if (BranchAccess.IsSuperAdmin(_tenant))
+            return rows;
+        return rows.Where(r => _tenant.BranchIds.Contains(r.BranchId)).ToList();
+    }
 
     public async Task<(byte[] Content, string ContentType, string FileName)> ExportIncomeExpensePdfAsync(Guid? branchId, DateTime from, DateTime to, CancellationToken ct = default)
     {

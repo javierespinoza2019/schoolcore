@@ -11,7 +11,7 @@
   BORRA (operativo):
     Finanzas/caja: CashMovement, CashAudit, Payment, Expense, Charge, CashSession, AuditLog
     Personas/académico: Notification, TimelineEvent, Document, StudentGuardian,
-                        Enrollment, Student, Guardian, Classroom, Teacher
+                        Enrollment, Student, Guardian, Classroom, TeacherBranch, Teacher
     Auth sesión: RefreshToken, PasswordResetToken
     Contadores: TenantSequence (reset NextValue = 1)
 
@@ -92,6 +92,13 @@ IF COL_LENGTH(N'dbo.Classroom', N'TeacherId') IS NOT NULL
     UPDATE dbo.Classroom SET TeacherId = NULL WHERE TenantId = @TenantId;
 
 DELETE FROM dbo.Classroom WHERE TenantId = @TenantId;
+
+IF OBJECT_ID(N'dbo.TeacherBranch', N'U') IS NOT NULL
+    DELETE tb
+    FROM dbo.TeacherBranch tb
+    INNER JOIN dbo.Teacher t ON t.Id = tb.TeacherId
+    WHERE t.TenantId = @TenantId;
+
 DELETE FROM dbo.Teacher   WHERE TenantId = @TenantId;
 
 /* --- Solo tokens de sesión / reset (NO borra dbo.User ni dbo.Tenant) --- */

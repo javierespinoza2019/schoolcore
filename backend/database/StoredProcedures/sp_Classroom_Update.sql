@@ -17,6 +17,16 @@ AS BEGIN SET NOCOUNT ON;
         THROW 51002, 'Branch is required.', 1;
     IF NOT EXISTS (SELECT 1 FROM dbo.Branch WHERE Id=@BranchId AND TenantId=@TenantId AND IsDeleted=0)
         THROW 51003, 'Branch not found.', 1;
+    IF @TeacherId IS NOT NULL
+       AND NOT EXISTS (
+            SELECT 1 FROM dbo.Teacher t
+            WHERE t.Id=@TeacherId AND t.TenantId=@TenantId AND t.IsDeleted=0
+              AND (
+                    EXISTS (SELECT 1 FROM dbo.TeacherBranch tb WHERE tb.TeacherId=t.Id AND tb.BranchId=@BranchId)
+                    OR (NOT EXISTS (SELECT 1 FROM dbo.TeacherBranch tb0 WHERE tb0.TeacherId=t.Id) AND t.BranchId=@BranchId)
+                  )
+       )
+        THROW 51005, 'El profesor no está asignado a esta sucursal.', 1;
     UPDATE dbo.Classroom SET BranchId=@BranchId, Name=@Name, EducationLevelId=@EducationLevelId, Grade=@Grade, GroupCode=@GroupCode,
         Capacity=@Capacity, Occupied=ISNULL(@Occupied, Occupied), RoomType=@RoomType, Building=@Building, FloorNumber=@FloorNumber, Status=@Status,
         TeacherId=@TeacherId, ScheduleNotes=@ScheduleNotes, EquipmentJson=@EquipmentJson,

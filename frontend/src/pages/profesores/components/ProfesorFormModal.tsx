@@ -14,6 +14,7 @@ import type { GuardIssue } from '@/lib/interaction/guards';
 import { queryKeys } from '@/api/queryKeys';
 import { useSchoolContext } from '@/context/SchoolContext';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
+import BranchCheckboxGroup from '@/components/feature/BranchCheckboxGroup';
 import {
   FieldLimits,
   assignError,
@@ -44,6 +45,7 @@ export interface ProfesorFormData {
   tipoPago: string;
   salarioMensual: string;
   sucursal: string;
+  branchIds: string[];
   nivel: string;
   horario: string;
   estado: string;
@@ -56,7 +58,7 @@ export interface ProfesorFormData {
 const emptyForm: ProfesorFormData = {
   firstName: '', lastName: '', email: '', telefono: '', especialidad: '',
   materias: '', tipoPago: 'Nómina', salarioMensual: '',
-  sucursal: '', nivel: 'Secundaria',
+  sucursal: '', branchIds: [], nivel: 'Secundaria',
   horario: '', estado: 'Activo',
   photo: '',
   photoFile: null,
@@ -132,6 +134,9 @@ export default function ProfesorFormModal({
         tipoPago: profesor.tipoPago,
         salarioMensual: String(profesor.salarioMensual),
         sucursal: isGuid(profesor.branchId) ? profesor.branchId! : isGuid(profesor.sucursal) ? profesor.sucursal : branchId || '',
+        branchIds: (profesor.branchIds ?? []).filter((id) => isGuid(id)).length
+          ? (profesor.branchIds ?? []).filter((id) => isGuid(id))
+          : [isGuid(profesor.branchId) ? profesor.branchId! : isGuid(profesor.sucursal) ? profesor.sucursal : branchId || ''].filter((id) => isGuid(id)),
         nivel: profesor.nivel,
         horario: profesor.horario,
         estado: profesor.estado,
@@ -144,6 +149,7 @@ export default function ProfesorFormModal({
       setForm({
         ...emptyForm,
         sucursal: isGuid(branchId) ? branchId! : sucursalOptions[0]?.value || '',
+        branchIds: isGuid(branchId) ? [branchId!] : sucursalOptions[0]?.value ? [sucursalOptions[0].value] : [],
       });
       setPhotoPreview('');
     }
@@ -224,7 +230,7 @@ export default function ProfesorFormModal({
     if (!form.materias.trim()) newErrors.materias = 'Indica al menos una materia';
     else assignError(newErrors, 'materias', validateTextFree(form.materias, FieldLimits.subjects, 'Materias'));
 
-    if (!isGuid(form.sucursal)) newErrors.sucursal = 'Selecciona una sucursal válida';
+    if (form.branchIds.filter((id) => isGuid(id)).length === 0) newErrors.sucursal = 'Selecciona al menos una sucursal';
 
     setErrors(newErrors);
     if (Object.keys(newErrors).length > 0) {
@@ -246,7 +252,9 @@ export default function ProfesorFormModal({
     }
     const ok = await confirmSoftWarnings(soft);
     if (!ok) return;
-    onSave(form);
+    const ids = form.branchIds.filter((id) => isGuid(id));
+    const home = (branchId && ids.includes(branchId) ? branchId : ids[0]) || '';
+    onSave({ ...form, sucursal: home, branchIds: ids });
   };
 
   return (
@@ -374,18 +382,20 @@ export default function ProfesorFormModal({
               options={[{ value: 'Nómina', label: 'Nómina' }, { value: 'Honorarios', label: 'Honorarios' }]}
             />
             <Input label="Salario Mensual (MXN)" type="number" required value={form.salarioMensual} onChange={(e) => handleChange('salarioMensual', e.target.value)} error={errors.salarioMensual} placeholder="25000" />
-            <Select
-              label="Sucursal"
-              required
-              value={form.sucursal}
-              onChange={(e) => handleChange('sucursal', e.target.value)}
-              options={
-                sucursalOptions.length > 0
-                  ? sucursalOptions
-                  : [{ value: '', label: 'Sin sucursales disponibles' }]
-              }
-              error={errors.sucursal}
-            />
+            <div className="sm:col-span-3">
+              <BranchCheckboxGroup
+                label="Sucursales"
+                required
+                options={sucursalOptions.map((o) => ({ id: o.value, name: o.label }))}
+                value={form.branchIds}
+                onChange={(ids) => {
+                  setForm((prev) => ({ ...prev, branchIds: ids, sucursal: ids[0] || '' }));
+                  if (errors.sucursal) setErrors((prev) => { const n = { ...prev }; delete n.sucursal; return n; });
+                }}
+                error={errors.sucursal}
+                hint="Por defecto la sucursal activa. Puedes agregar más."
+              />
+            </div>
             <Select
               label="Nivel"
               value={form.nivel}

@@ -1,6 +1,7 @@
 /*
   SchoolCore — SQL Server 2022
   SP: sp_Teacher_GetById
+  Result sets: (1) teacher  (2) branches
 */
 USE db_a0b4b3_schoolcore;
 GO
@@ -17,5 +18,10 @@ AS BEGIN SET NOCOUNT ON;
     LEFT JOIN dbo.Branch b ON b.Id = t.BranchId AND b.TenantId = t.TenantId
     LEFT JOIN dbo.EducationLevel el ON el.Id = t.EducationLevelId AND el.TenantId = t.TenantId AND el.IsDeleted = 0
     WHERE t.TenantId = @TenantId AND t.Id = @Id AND t.IsDeleted = 0;
+
+    SELECT tb.BranchId, b.Name AS BranchName, b.Code AS BranchCode
+    FROM dbo.TeacherBranch tb
+    INNER JOIN dbo.Branch b ON b.Id = tb.BranchId AND b.IsDeleted=0 AND b.TenantId=@TenantId
+    WHERE tb.TeacherId = @Id;
 END
 GO

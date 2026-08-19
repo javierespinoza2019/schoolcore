@@ -8,6 +8,8 @@ export interface UsuarioSistema {
   ultimoAcceso: string;
   telefono: string;
   sucursal: string;
+  /** GUIDs de sucursales asignadas (vacío = Super Admin / todas). */
+  branchIds?: string[];
   avatar: string | null;
   fechaCreacion: string;
 }

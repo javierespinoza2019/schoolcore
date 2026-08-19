@@ -79,7 +79,7 @@ export default function Alumnos() {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const { cycleId } = useSchoolContext();
+  const { cycleId, branchId } = useSchoolContext();
   const { can } = usePermissions();
 
   const [data, setData] = useState<Student[]>([]);
@@ -104,9 +104,10 @@ export default function Alumnos() {
   }, [search]);
 
   const studentsQuery = useApiResource({
-    queryKey: queryKeys.students.list({ search: searchDebounced, status, pageSize: 100 }),
+    queryKey: queryKeys.students.list({ search: searchDebounced, status, pageSize: 100, branchId }),
     queryFn: () =>
       studentsApi.listStudents({
+        branchId,
         pageSize: 100,
         search: searchDebounced || undefined,
         status: status || undefined,
@@ -114,8 +115,8 @@ export default function Alumnos() {
     errorToast: 'Error al cargar alumnos',
   });
   const classroomsQ = useApiResource({
-    queryKey: queryKeys.classrooms.list({ for: 'alumnos' }),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
+    queryKey: queryKeys.classrooms.list({ for: 'alumnos', branchId }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100, branchId }),
   });
   const classrooms = classroomsQ.data ?? [];
 

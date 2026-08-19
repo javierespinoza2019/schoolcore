@@ -235,24 +235,24 @@ function exportToCSV(dataToExport: Salon[]) {
 export default function Salones() {
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const { branch, branchOptions } = useSchoolContext();
+  const { branch, branchId, branchOptions } = useSchoolContext();
 
   const [data, setData] = useState<Salon[]>([]);
   const [studentsList, setStudentsList] = useState<Student[]>([]);
   const [teachersList, setTeachersList] = useState<Profesor[]>([]);
   const classroomsQ = useApiResource({
-    queryKey: queryKeys.classrooms.list({}),
-    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100 }),
+    queryKey: queryKeys.classrooms.list({ branchId }),
+    queryFn: () => classroomsApi.listClassrooms({ pageSize: 100, branchId }),
     errorToast: 'Error al cargar salones',
   });
   const studentsQ = useApiResource({
-    queryKey: queryKeys.students.list({ for: 'salones' }),
-    queryFn: () => studentsApi.listStudents({ pageSize: 500 }),
+    queryKey: queryKeys.students.list({ for: 'salones', branchId }),
+    queryFn: () => studentsApi.listStudents({ pageSize: 500, branchId }),
     errorToast: 'Error al cargar alumnos para ocupación',
   });
   const teachersQ = useApiResource({
-    queryKey: queryKeys.teachers.list({ for: 'salones' }),
-    queryFn: () => teachersApi.listTeachers({ pageSize: 100 }),
+    queryKey: queryKeys.teachers.list({ for: 'salones', branchId }),
+    queryFn: () => teachersApi.listTeachers({ pageSize: 100, branchId }),
     errorToast: 'Error al cargar profesores',
   });
   useEffect(() => {

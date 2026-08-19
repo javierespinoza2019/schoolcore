@@ -182,6 +182,7 @@ export default function ProfesorDetail() {
     setSaving(true);
     const payload = {
       branchId: formData.sucursal,
+      branchIds: formData.branchIds,
       firstName: formData.firstName.trim(),
       lastName: formData.lastName.trim(),
       nombre: nombreCompleto,

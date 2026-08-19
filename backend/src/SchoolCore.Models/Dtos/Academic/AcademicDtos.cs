@@ -22,6 +22,7 @@ public sealed class TeacherDto
     public string? PhotoUrl { get; set; }
     public string? BranchName { get; set; }
     public string? EducationLevelName { get; set; }
+    public IReadOnlyList<TeacherBranchDto> Branches { get; set; } = Array.Empty<TeacherBranchDto>();
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
 }
@@ -44,6 +45,15 @@ public sealed class TeacherUpsertRequest
     public string? LevelName { get; set; }
     /// <summary>GUID del documento o URL corta. Nunca data URL.</summary>
     public string? PhotoUrl { get; set; }
+    /// <summary>Sucursales asignadas. Vacío = solo <see cref="BranchId"/> (casa).</summary>
+    public IReadOnlyList<Guid> BranchIds { get; set; } = Array.Empty<Guid>();
+}
+
+public sealed class TeacherBranchDto
+{
+    public Guid BranchId { get; set; }
+    public string BranchName { get; set; } = string.Empty;
+    public string BranchCode { get; set; } = string.Empty;
 }
 
 public sealed class ClassroomDto

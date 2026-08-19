@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.Common;
 using Dapper;
+using SchoolCore.DataAccess;
 using SchoolCore.Models.Dtos.Academic;
 using SchoolCore.Models.Dtos.Common;
 
@@ -12,6 +13,7 @@ public interface IAcademicRepository
     Task<TeacherDto?> GetTeacherAsync(Guid tenantId, Guid id, CancellationToken ct = default);
     Task<TeacherDto> CreateTeacherAsync(Guid tenantId, Guid id, TeacherUpsertRequest request, Guid? userId, CancellationToken ct = default);
     Task<TeacherDto> UpdateTeacherAsync(Guid tenantId, Guid id, TeacherUpsertRequest request, Guid? userId, CancellationToken ct = default);
+    Task<IReadOnlyList<TeacherBranchDto>> SetTeacherBranchesAsync(Guid tenantId, Guid teacherId, IEnumerable<Guid> branchIds, CancellationToken ct = default);
     Task SoftDeleteTeacherAsync(Guid tenantId, Guid id, Guid? userId, CancellationToken ct = default);
 
     Task<PagedResult<ClassroomDto>> ListClassroomsAsync(Guid tenantId, Guid? branchId, int page, int pageSize, string? search, CancellationToken ct = default);
@@ -38,31 +40,84 @@ public sealed class AcademicRepository : IAcademicRepository
     {
         await using var conn = await OpenAsync(ct);
         var p = new DynamicParameters(new { TenantId = tenantId, BranchId = branchId, Page = page, PageSize = pageSize, Search = search });
-        var (items, total) = await DapperPaging.QueryPagedAsync<TeacherDto>(conn, "sp_Teacher_List", p, ct);
+        p.Add("TotalCount", dbType: DbType.Int32, direction: ParameterDirection.Output);
+        await using var multi = await conn.QueryMultipleAsync(new CommandDefinition(
+            "sp_Teacher_List", p, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        var items = (await multi.ReadAsync<TeacherDto>()).ToList();
+        var branchRows = (await multi.ReadAsync<TeacherBranchRow>()).ToList();
+        var total = p.Get<int>("TotalCount");
+        HydrateTeacherBranches(items, branchRows);
         return DapperPaging.ToPagedResult(items, total, page, pageSize);
     }
 
     public async Task<TeacherDto?> GetTeacherAsync(Guid tenantId, Guid id, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync(ct);
-        return await conn.QuerySingleOrDefaultAsync<TeacherDto>(new CommandDefinition("sp_Teacher_GetById", new { TenantId = tenantId, Id = id }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        await using var multi = await conn.QueryMultipleAsync(new CommandDefinition(
+            "sp_Teacher_GetById", new { TenantId = tenantId, Id = id }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        var teacher = await multi.ReadSingleOrDefaultAsync<TeacherDto>();
+        if (teacher is null) return null;
+        teacher.Branches = (await multi.ReadAsync<TeacherBranchDto>()).ToList();
+        return teacher;
     }
 
     public async Task<TeacherDto> CreateTeacherAsync(Guid tenantId, Guid id, TeacherUpsertRequest request, Guid? userId, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync(ct);
-        return await conn.QuerySingleAsync<TeacherDto>(new CommandDefinition("sp_Teacher_Create", MapTeacher(tenantId, id, request, userId, create: true), commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        await using var multi = await conn.QueryMultipleAsync(new CommandDefinition(
+            "sp_Teacher_Create", MapTeacher(tenantId, id, request, userId, create: true), commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        var teacher = await multi.ReadSingleAsync<TeacherDto>();
+        if (!multi.IsConsumed)
+            await multi.ReadAsync<TeacherBranchDto>();
+        return teacher;
     }
 
     public async Task<TeacherDto> UpdateTeacherAsync(Guid tenantId, Guid id, TeacherUpsertRequest request, Guid? userId, CancellationToken ct = default)
     {
         await using var conn = await OpenAsync(ct);
-        return await conn.QuerySingleAsync<TeacherDto>(new CommandDefinition("sp_Teacher_Update", MapTeacher(tenantId, id, request, userId, create: false), commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        await using var multi = await conn.QueryMultipleAsync(new CommandDefinition(
+            "sp_Teacher_Update", MapTeacher(tenantId, id, request, userId, create: false), commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        var teacher = await multi.ReadSingleAsync<TeacherDto>();
+        if (!multi.IsConsumed)
+            await multi.ReadAsync<TeacherBranchDto>();
+        return teacher;
     }
 
     private static object MapTeacher(Guid tenantId, Guid id, TeacherUpsertRequest request, Guid? userId, bool create) => create
         ? new { Id = id, TenantId = tenantId, request.BranchId, request.FirstName, request.LastName, request.Email, request.Phone, request.Specialty, request.SubjectsJson, request.EmploymentType, request.MonthlySalary, request.EducationLevelId, request.Status, request.HireDate, request.ScheduleNotes, request.LevelName, request.PhotoUrl, CreatedBy = userId }
         : new { TenantId = tenantId, Id = id, request.BranchId, request.FirstName, request.LastName, request.Email, request.Phone, request.Specialty, request.SubjectsJson, request.EmploymentType, request.MonthlySalary, request.EducationLevelId, request.Status, request.HireDate, request.ScheduleNotes, request.LevelName, request.PhotoUrl, UpdatedBy = userId };
+
+    public async Task<IReadOnlyList<TeacherBranchDto>> SetTeacherBranchesAsync(Guid tenantId, Guid teacherId, IEnumerable<Guid> branchIds, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        var csv = string.Join(',', branchIds);
+        var rows = await conn.QueryAsync<TeacherBranchDto>(new CommandDefinition("sp_Teacher_SetBranches", new
+        {
+            TenantId = tenantId,
+            TeacherId = teacherId,
+            BranchIdsCsv = csv
+        }, commandType: CommandType.StoredProcedure, cancellationToken: ct));
+        return rows.ToList();
+    }
+
+    private static void HydrateTeacherBranches(List<TeacherDto> items, List<TeacherBranchRow> branchRows)
+    {
+        var byTeacher = branchRows
+            .GroupBy(b => b.TeacherId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyList<TeacherBranchDto>)g
+                .Select(b => new TeacherBranchDto { BranchId = b.BranchId, BranchName = b.BranchName, BranchCode = b.BranchCode })
+                .ToList());
+        foreach (var teacher in items)
+            teacher.Branches = byTeacher.TryGetValue(teacher.Id, out var branches) ? branches : Array.Empty<TeacherBranchDto>();
+    }
+
+    private sealed class TeacherBranchRow
+    {
+        public Guid TeacherId { get; set; }
+        public Guid BranchId { get; set; }
+        public string BranchName { get; set; } = string.Empty;
+        public string BranchCode { get; set; } = string.Empty;
+    }
 
     public async Task SoftDeleteTeacherAsync(Guid tenantId, Guid id, Guid? userId, CancellationToken ct = default)
     {

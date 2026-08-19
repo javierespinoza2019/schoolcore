@@ -5,6 +5,8 @@ import { listCycles } from '@/api/cyclesApi';
 import { isGuid } from '@/api/helpers';
 import { queryKeys } from '@/api/queryKeys';
 import { useSchoolContext } from '@/context/SchoolContext';
+import { useAuth } from '@/auth/AuthContext';
+import { isSuperAdminRole } from '@/lib/auth/roles';
 
 interface Branch {
   id: string;
@@ -35,6 +37,8 @@ export default function ContextSwitcher() {
     branchOptions,
     cycleOptions,
   } = useSchoolContext();
+  const { user } = useAuth();
+  const operatorIsSuperAdmin = isSuperAdminRole(user?.roles);
 
   const [branchOpen, setBranchOpen] = useState(false);
   const [cycleOpen, setCycleOpen] = useState(false);
@@ -54,17 +58,21 @@ export default function ContextSwitcher() {
   useEffect(() => {
     const items = branchesQuery.data?.data;
     if (!items) return;
+    const mapped = items
+      .filter((b) => isGuid(b.id))
+      .map((b) => ({
+        id: String(b.id),
+        name: b.nombre,
+        shortName: shortName(b.nombre),
+        studentCount: b.alumnosInscritos,
+      }));
+    const assigned = user?.branchIds ?? [];
     setBranchOptions(
-      items
-        .filter((b) => isGuid(b.id))
-        .map((b) => ({
-          id: String(b.id),
-          name: b.nombre,
-          shortName: shortName(b.nombre),
-          studentCount: b.alumnosInscritos,
-        }))
+      operatorIsSuperAdmin
+        ? mapped
+        : mapped.filter((b) => assigned.includes(b.id))
     );
-  }, [branchesQuery.data, setBranchOptions]);
+  }, [branchesQuery.data, setBranchOptions, operatorIsSuperAdmin, user?.branchIds]);
 
   useEffect(() => {
     const items = cyclesQuery.data?.data;

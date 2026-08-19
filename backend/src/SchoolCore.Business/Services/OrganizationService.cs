@@ -201,6 +201,8 @@ public sealed class OrganizationService : IOrganizationService
     public async Task<EffectiveTimeZoneDto> ResolveTimeZoneAsync(Guid? branchId, CancellationToken ct = default)
     {
         var (tenantId, _) = Ctx();
+        if (branchId.HasValue && branchId.Value != Guid.Empty)
+            BranchAccess.EnsureCanAccess(_tenant, branchId.Value);
         return await _repo.ResolveTimeZoneAsync(tenantId, branchId, ct);
     }
 
@@ -313,13 +315,18 @@ public sealed class OrganizationService : IOrganizationService
     {
         var (tenantId, _) = Ctx();
         paging.Normalize();
-        return await _repo.ListStaffAsync(tenantId, paging.Page, paging.PageSize, search, ct);
+        var result = await _repo.ListStaffAsync(tenantId, paging.Page, paging.PageSize, search, ct);
+        foreach (var user in result.Items)
+            HideBranchesIfSuperAdmin(user);
+        return result;
     }
 
     public async Task<StaffUserDto> GetStaffAsync(Guid id, CancellationToken ct = default)
     {
         var (tenantId, _) = Ctx();
-        return await _repo.GetStaffAsync(tenantId, id, ct) ?? throw AppException.NotFound("User not found.");
+        var user = await _repo.GetStaffAsync(tenantId, id, ct) ?? throw AppException.NotFound("User not found.");
+        HideBranchesIfSuperAdmin(user);
+        return user;
     }
 
     public async Task<StaffUserDto> CreateStaffAsync(CreateStaffUserRequest request, CancellationToken ct = default)
@@ -332,11 +339,14 @@ public sealed class OrganizationService : IOrganizationService
             FieldValidator.PersonName(request.LastName, "Los apellidos"));
 
         var hash = _auth.HashPassword(request.Password);
+        var isSuperAdmin = MvpLoginRoles.IsSuperAdmin(request.RoleCodes);
+        if (!isSuperAdmin)
+            BranchAccess.EnsureCanAssign(_tenant, request.BranchIds);
+
         var created = await ExecAsync(() => _repo.CreateStaffAsync(tenantId, Guid.NewGuid(), request.Email.Trim(), hash, request.FirstName, request.LastName, request.IsActive, userId, ct));
         if (request.RoleCodes.Count > 0)
             await ExecAsync(() => _repo.SetRolesAsync(tenantId, created.Id, request.RoleCodes, ct));
-        if (request.BranchIds.Count > 0)
-            await ExecAsync(() => _repo.SetBranchesAsync(tenantId, created.Id, request.BranchIds, ct));
+        await ExecAsync(() => _repo.SetBranchesAsync(tenantId, created.Id, isSuperAdmin ? Array.Empty<Guid>() : request.BranchIds, ct));
         return await GetStaffAsync(created.Id, ct);
     }
 
@@ -347,10 +357,19 @@ public sealed class OrganizationService : IOrganizationService
             FieldValidator.Email(request.Email, required: true),
             FieldValidator.PersonName(request.FirstName, "El nombre"),
             FieldValidator.PersonName(request.LastName, "Los apellidos"));
+
+        var existing = await _repo.GetStaffAsync(tenantId, id, ct) ?? throw AppException.NotFound("User not found.");
+        var roleCodes = request.RoleCodes ?? existing.Roles.Select(r => r.RoleCode).ToList();
+        var isSuperAdmin = MvpLoginRoles.IsSuperAdmin(roleCodes);
+        if (!isSuperAdmin && request.BranchIds is not null)
+            BranchAccess.EnsureCanAssign(_tenant, request.BranchIds);
+
         await ExecAsync(() => _repo.UpdateStaffAsync(tenantId, id, request, userId, ct));
         if (request.RoleCodes is not null)
             await ExecAsync(() => _repo.SetRolesAsync(tenantId, id, request.RoleCodes, ct));
-        if (request.BranchIds is not null)
+        if (isSuperAdmin)
+            await ExecAsync(() => _repo.SetBranchesAsync(tenantId, id, Array.Empty<Guid>(), ct));
+        else if (request.BranchIds is not null)
             await ExecAsync(() => _repo.SetBranchesAsync(tenantId, id, request.BranchIds, ct));
         return await GetStaffAsync(id, ct);
     }
@@ -514,5 +533,11 @@ public sealed class OrganizationService : IOrganizationService
 
         if (!SchoolCoreTimeZones.IsAllowed(timeZoneId))
             throw AppException.BadRequest($"Time zone '{timeZoneId}' is not allowed.");
+    }
+
+    private static void HideBranchesIfSuperAdmin(StaffUserDto user)
+    {
+        if (MvpLoginRoles.IsSuperAdmin(user.Roles.Select(r => r.RoleCode)))
+            user.Branches = Array.Empty<UserBranchDto>();
     }
 }

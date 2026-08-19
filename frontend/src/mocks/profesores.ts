@@ -13,6 +13,8 @@ export interface Profesor {
   tipoPago: string;
   salarioMensual: number;
   sucursal: string;
+  /** Sucursales asignadas (GUID). */
+  branchIds?: string[];
   nivel: string;
   estado: string;
   fechaIngreso: string;

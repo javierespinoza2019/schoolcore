@@ -254,7 +254,8 @@ public sealed class AuthService : IAuthService
     {
         var accessExpires = DateTime.UtcNow.AddMinutes(_jwtOptions.AccessTokenMinutes);
         var refreshExpires = DateTime.UtcNow.AddDays(_jwtOptions.RefreshTokenDays);
-        var accessToken = _jwtTokenService.CreateAccessToken(user, roles, branchIds, accessExpires);
+        var tokenBranches = MvpLoginRoles.IsSuperAdmin(roles) ? Array.Empty<Guid>() : branchIds;
+        var accessToken = _jwtTokenService.CreateAccessToken(user, roles, tokenBranches, accessExpires);
 
         var refreshRaw = CreateOpaqueToken();
         var refreshHash = HashOpaqueToken(refreshRaw);
@@ -281,7 +282,7 @@ public sealed class AuthService : IAuthService
             FirstName = user.FirstName,
             LastName = user.LastName,
             Roles = roles,
-            BranchIds = branchIds
+            BranchIds = tokenBranches
         };
     }
 

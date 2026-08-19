@@ -524,6 +524,19 @@ function normalizeStaffUser(raw: Record<string, unknown>): UsuarioSistema {
     `${firstName} ${lastName}`.trim() ||
     String(raw.email ?? 'Usuario');
 
+  const branchIds = branches
+    .map((b) => String(b.branchId ?? b.id ?? ''))
+    .filter((id) => id && id !== 'undefined');
+  const branchNames = branches
+    .map((b) => String(b.branchName ?? b.name ?? '').trim())
+    .filter(Boolean);
+  const isSa = roleCode.toLowerCase() === 'superadmin';
+  const sucursal = isSa
+    ? 'Todas'
+    : branchNames.length
+      ? branchNames.join(', ')
+      : String(raw.sucursal ?? '—');
+
   return {
     id: String(raw.id ?? ''),
     nombre,
@@ -533,7 +546,8 @@ function normalizeStaffUser(raw: Record<string, unknown>): UsuarioSistema {
     activo: Boolean(raw.isActive ?? raw.activo ?? true),
     ultimoAcceso: String(raw.lastLoginAt ?? raw.ultimoAcceso ?? raw.createdAt ?? ''),
     telefono: String(raw.phone ?? raw.telefono ?? ''),
-    sucursal: String(branches[0]?.branchName ?? branches[0]?.name ?? raw.sucursal ?? '—'),
+    sucursal,
+    branchIds: isSa ? [] : branchIds,
     avatar: (raw.avatar as string | null) ?? null,
     fechaCreacion: String(raw.createdAt ?? raw.fechaCreacion ?? ''),
   };

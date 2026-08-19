@@ -1,3 +1,4 @@
+using SchoolCore.Business.Security;
 using SchoolCore.Common.Security;
 using Xunit;
 
@@ -43,6 +44,39 @@ public sealed class TenantIsolationTests
         Assert.False(MvpLoginRoles.HasAllowedRole(["Teacher"]));
         Assert.False(MvpLoginRoles.HasAllowedRole(["Parent", "Student"]));
         Assert.False(MvpLoginRoles.HasAllowedRole([]));
+        Assert.True(MvpLoginRoles.IsSuperAdmin(["SuperAdmin", "Director"]));
+        Assert.False(MvpLoginRoles.IsSuperAdmin(["Director"]));
+        Assert.False(MvpLoginRoles.IsSuperAdmin([]));
+    }
+
+    [Fact]
+    public void BranchAccess_SuperAdmin_BypassesAssignment()
+    {
+        var ctx = new TenantContext();
+        ctx.Set(Guid.NewGuid(), Guid.NewGuid(), ["SuperAdmin"], Array.Empty<Guid>());
+        Assert.True(BranchAccess.IsSuperAdmin(ctx));
+        BranchAccess.EnsureQueryBranch(ctx, null);
+        BranchAccess.EnsureCanAccess(ctx, Guid.NewGuid());
+        BranchAccess.EnsureCanAssign(ctx, [Guid.NewGuid()]);
+    }
+
+    [Fact]
+    public void BranchAccess_Staff_RequiresAssignedBranch()
+    {
+        var tenantId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var allowed = Guid.NewGuid();
+        var denied = Guid.NewGuid();
+        var ctx = new TenantContext();
+        ctx.Set(tenantId, userId, ["Director"], [allowed]);
+
+        Assert.False(BranchAccess.IsSuperAdmin(ctx));
+        BranchAccess.EnsureCanAccess(ctx, allowed);
+        Assert.Throws<SchoolCore.Common.Exceptions.AppException>(() => BranchAccess.EnsureCanAccess(ctx, denied));
+        BranchAccess.EnsureQueryBranch(ctx, null);
+        Assert.Throws<SchoolCore.Common.Exceptions.AppException>(() => BranchAccess.EnsureQueryBranch(ctx, denied));
+        Assert.Throws<SchoolCore.Common.Exceptions.AppException>(() => BranchAccess.EnsureCanAssign(ctx, [denied]));
+        BranchAccess.EnsureCanAssign(ctx, [allowed]);
     }
 
     [Fact]
