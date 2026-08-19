@@ -16,6 +16,7 @@ import { queryKeys } from '@/api/queryKeys';
 import * as cashApi from '@/api/cashApi';
 import RegistrarPagoModal from '@/pages/finanzas/components/RegistrarPagoModal';
 import { isGuid } from '@/api/helpers';
+import { FieldLimits, validateTextFree } from '@/lib/validation/fields';
 import Swal from 'sweetalert2';
 
 export default function Caja() {
@@ -99,6 +100,11 @@ export default function Caja() {
     const amount = Number(openingAmount);
     if (!Number.isFinite(amount) || amount < 0) {
       showToast('Monto inicial inválido', 'error');
+      return;
+    }
+    const notesErr = validateTextFree(openingNotes, FieldLimits.cashNotes, 'Notas');
+    if (notesErr) {
+      showToast(notesErr, 'error');
       return;
     }
     setOpeningSaving(true);
@@ -663,12 +669,15 @@ export default function Caja() {
             <Input
               label="Monto inicial"
               type="number"
+              min={0}
+              step="0.01"
               value={openingAmount}
               onChange={(e) => setOpeningAmount(e.target.value)}
               placeholder="0.00"
             />
             <Input
               label="Notas (opcional)"
+              maxLength={FieldLimits.cashNotes}
               value={openingNotes}
               onChange={(e) => setOpeningNotes(e.target.value)}
             />

@@ -21,17 +21,32 @@ public static partial class FieldValidator
     [GeneratedRegex(@"^[^\s@]+@[^\s@]+\.[^\s@]+$", RegexOptions.CultureInvariant)]
     private static partial Regex EmailRegex();
 
-    public static string? PersonName(string? value, string label, bool required = true)
+    public static string? PersonName(string? value, string label, bool required = true, int maxLen = FieldStandards.PersonNameMax)
     {
         var v = value?.Trim() ?? string.Empty;
         if (string.IsNullOrEmpty(v))
             return required ? $"{label} es obligatorio." : null;
         if (v.Length < FieldStandards.PersonNameMin)
             return $"Mínimo {FieldStandards.PersonNameMin} caracteres.";
-        if (v.Length > FieldStandards.PersonNameMax)
-            return $"Máximo {FieldStandards.PersonNameMax} caracteres.";
+        if (v.Length > maxLen)
+            return $"Máximo {maxLen} caracteres.";
         if (!PersonNameRegex().IsMatch(v))
             return $"{label}: solo letras, espacios y ' - . (sin números ni símbolos).";
+        return null;
+    }
+
+    public static string? Website(string? value)
+    {
+        var v = value?.Trim() ?? string.Empty;
+        if (string.IsNullOrEmpty(v))
+            return null;
+        if (v.Length > FieldStandards.WebsiteMax)
+            return $"Máximo {FieldStandards.WebsiteMax} caracteres.";
+        if (!TextFreeRegex().IsMatch(v))
+            return "Sitio web: no se permiten caracteres de control ni < >.";
+        if (!Uri.TryCreate(v, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+            return "Usa una URL válida (https://…).";
         return null;
     }
 

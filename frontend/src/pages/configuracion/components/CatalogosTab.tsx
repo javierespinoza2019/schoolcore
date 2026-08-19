@@ -12,6 +12,7 @@ import * as settingsApi from '@/api/settingsApi';
 import { isGuid } from '@/api/helpers';
 import { queryKeys } from '@/api/queryKeys';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
+import { FieldLimits, assignError, validateField } from '@/lib/validation/fields';
 
 interface NivelEducativo { id: string; nombre: string; grados: number; activo: boolean; }
 interface RolPermiso { id: string; nombre: string; usuarios: number; descripcion: string; }
@@ -81,7 +82,7 @@ export default function CatalogosTab({
 
   const handleSaveNivel = async () => {
     const errs: Record<string, string> = {};
-    if (!nivelForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del nivel';
+    assignError(errs, 'nombre', validateField('academic.levelName', nivelForm.nombre, { required: true, label: 'Nombre del nivel' }));
     if (!nivelForm.grados.trim() || parseInt(nivelForm.grados) <= 0) errs.grados = 'Ingresa un número de grados válido';
     setErrors(errs);
     if (Object.keys(errs).length > 0) {
@@ -273,7 +274,7 @@ export default function CatalogosTab({
         footer={<div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={() => { setModalNivel(false); setErrors({}); }}>Cancelar</Button><Button variant="primary" size="sm" icon={saving ? undefined : 'ri-check-line'} onClick={() => void handleSaveNivel()} disabled={saving}>{saving ? (<><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />Guardando...</>) : editingNivel ? 'Guardar Cambios' : 'Agregar Nivel'}</Button></div>}
       >
         <div className="space-y-4">
-          <Input label="Nombre del Nivel" required value={nivelForm.nombre} onChange={(e) => { setNivelForm((f) => ({ ...f, nombre: e.target.value })); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Bachillerato" />
+          <Input label="Nombre del Nivel" required maxLength={FieldLimits.levelName} value={nivelForm.nombre} onChange={(e) => { setNivelForm((f) => ({ ...f, nombre: e.target.value })); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Bachillerato" />
           <Input label="Número de Grados" required type="number" value={nivelForm.grados} onChange={(e) => { setNivelForm((f) => ({ ...f, grados: e.target.value })); if (errors.grados) setErrors((p) => { const n = { ...p }; delete n.grados; return n; }); }} error={errors.grados} placeholder="Ej. 6" />
         </div>
       </Modal>

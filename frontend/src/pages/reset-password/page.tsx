@@ -5,7 +5,7 @@ import Card from '@/components/base/Card';
 import Input from '@/components/base/Input';
 import * as authApi from '@/api/authApi';
 import { friendlyApiError } from '@/lib/interaction/messages';
-import { validatePassword } from '@/lib/validation/fields';
+import { FieldLimits, validatePassword } from '@/lib/validation/fields';
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -104,6 +104,7 @@ export default function ResetPasswordPage() {
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="new-password"
                 required
+                maxLength={FieldLimits.password}
                 icon="ri-lock-line"
                 iconRight={showPassword ? 'ri-eye-off-line' : 'ri-eye-line'}
                 iconRightAriaLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
@@ -118,6 +119,7 @@ export default function ResetPasswordPage() {
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="new-password"
                 required
+                maxLength={FieldLimits.password}
                 icon="ri-lock-password-line"
                 placeholder="Repite la contraseña"
                 value={confirm}

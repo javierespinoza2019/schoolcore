@@ -15,6 +15,7 @@ export type FieldCharset =
   | 'postalCodeMx'
   | 'code' // A-Z 0-9 _ -
   | 'textFree' // Sin controles ni < >
+  | 'url' // http(s) absoluto (WHATWG type=url)
   | 'money'
   | 'password'
   | 'enum';
@@ -47,7 +48,6 @@ export const CODE_RE = /^[A-Za-z0-9][A-Za-z0-9_\-]*$/;
 
 /**
  * Catálogo MVP. maxLen = UI = API = BD (salvo dbNVarChar distinto documentado).
- * Gaps conocidos: personName hoy solo valida longitud (sin charset) → basura en lista.
  */
 export const FIELD_STANDARDS: Record<string, FieldStandard> = {
   'person.firstName': {
@@ -61,7 +61,7 @@ export const FIELD_STANDARDS: Record<string, FieldStandard> = {
     autocomplete: 'given-name',
     htmlInputType: 'text',
     modules: ['alumnos', 'inscripciones', 'padres', 'profesores', 'config'],
-    notes: 'Hoy FieldLimits.name=100 sin charset; añadir PERSON_NAME_RE en UI+API.',
+    notes: 'Charset PERSON_NAME_RE en UI+API. Unicode (W3C i18n), no ASCII-only.',
   },
   'person.lastName': {
     id: 'person.lastName',
@@ -144,6 +144,19 @@ export const FIELD_STANDARDS: Record<string, FieldStandard> = {
     modules: ['alumnos'],
     notes: 'Optimización BD: hoy NVARCHAR(10) → 5 (O+/AB+).',
   },
+  'person.fullName': {
+    id: 'person.fullName',
+    label: 'Nombre completo',
+    minLen: 2,
+    maxLen: 201,
+    dbNVarChar: null,
+    charset: 'personName',
+    requiredDefault: true,
+    autocomplete: 'name',
+    htmlInputType: 'text',
+    modules: ['config'],
+    notes: 'UI staff (se parte en FirstName 100 + LastName 100).',
+  },
   'person.occupation': {
     id: 'person.occupation',
     label: 'Ocupación',
@@ -185,6 +198,17 @@ export const FIELD_STANDARDS: Record<string, FieldStandard> = {
     charset: 'textFree',
     requiredDefault: false,
     modules: ['alumnos', 'config'],
+  },
+  'academic.subjects': {
+    id: 'academic.subjects',
+    label: 'Materias',
+    minLen: 1,
+    maxLen: 400,
+    dbNVarChar: 'MAX',
+    charset: 'textFree',
+    requiredDefault: true,
+    modules: ['profesores'],
+    notes: 'JSON/lista en SubjectsJson; tope UI 400.',
   },
   'academic.specialty': {
     id: 'academic.specialty',
@@ -326,10 +350,83 @@ export const FIELD_STANDARDS: Record<string, FieldStandard> = {
     minLen: 0,
     maxLen: 300,
     dbNVarChar: 300,
-    charset: 'textFree',
+    charset: 'url',
     requiredDefault: false,
     htmlInputType: 'url',
+    autocomplete: 'url',
     modules: ['config'],
+  },
+  'org.directorName': {
+    id: 'org.directorName',
+    label: 'Nombre del director',
+    minLen: 2,
+    maxLen: 200,
+    dbNVarChar: 200,
+    charset: 'personName',
+    requiredDefault: false,
+    autocomplete: 'name',
+    htmlInputType: 'text',
+    modules: ['sucursales'],
+  },
+  'org.cycleName': {
+    id: 'org.cycleName',
+    label: 'Nombre del ciclo',
+    minLen: 2,
+    maxLen: 200,
+    dbNVarChar: 200,
+    charset: 'textFree',
+    requiredDefault: true,
+    modules: ['config'],
+  },
+  'org.emailSubject': {
+    id: 'org.emailSubject',
+    label: 'Asunto de correo',
+    minLen: 1,
+    maxLen: 300,
+    dbNVarChar: 300,
+    charset: 'textFree',
+    requiredDefault: true,
+    modules: ['config'],
+  },
+  'finance.paymentMethodName': {
+    id: 'finance.paymentMethodName',
+    label: 'Método de pago',
+    minLen: 1,
+    maxLen: 150,
+    dbNVarChar: 150,
+    charset: 'textFree',
+    requiredDefault: true,
+    modules: ['config'],
+  },
+  'finance.paymentMethodInfo': {
+    id: 'finance.paymentMethodInfo',
+    label: 'Información del método',
+    minLen: 1,
+    maxLen: 500,
+    dbNVarChar: 500,
+    charset: 'textFree',
+    requiredDefault: true,
+    modules: ['config'],
+  },
+  'finance.paymentConceptName': {
+    id: 'finance.paymentConceptName',
+    label: 'Concepto de pago',
+    minLen: 1,
+    maxLen: 200,
+    dbNVarChar: 200,
+    charset: 'textFree',
+    requiredDefault: true,
+    modules: ['config'],
+  },
+  'finance.cashNotes': {
+    id: 'finance.cashNotes',
+    label: 'Notas de caja',
+    minLen: 0,
+    maxLen: 500,
+    dbNVarChar: 500,
+    charset: 'textFree',
+    requiredDefault: false,
+    modules: ['caja'],
   },
   'finance.paymentNotes': {
     id: 'finance.paymentNotes',

@@ -11,6 +11,7 @@ import * as cyclesApi from '@/api/cyclesApi';
 import { queryKeys } from '@/api/queryKeys';
 import { isGuid } from '@/api/helpers';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
+import { FieldLimits, assignError, validateField } from '@/lib/validation/fields';
 
 interface CicloEscolar {
   id: string;
@@ -52,7 +53,7 @@ export default function CiclosTab({ ciclos }: Props) {
 
   const handleSave = async () => {
     const errs: Record<string, string> = {};
-    if (!formNombre.trim()) errs.nombre = 'Ingresa el nombre del ciclo';
+    assignError(errs, 'nombre', validateField('org.cycleName', formNombre, { required: true }));
     if (!formInicio) errs.inicio = 'Selecciona la fecha de inicio';
     if (!formFin) errs.fin = 'Selecciona la fecha de fin';
     if (formInicio && formFin && formFin <= formInicio) errs.fin = 'La fecha de fin debe ser posterior al inicio';
@@ -188,7 +189,7 @@ export default function CiclosTab({ ciclos }: Props) {
         }
       >
         <div className="space-y-4">
-          <Input label="Nombre del Ciclo" required value={formNombre} onChange={(e) => { setFormNombre(e.target.value); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Ciclo 2027-2028" />
+          <Input label="Nombre del Ciclo" required maxLength={FieldLimits.cycleName} value={formNombre} onChange={(e) => { setFormNombre(e.target.value); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Ciclo 2027-2028" />
           <Input label="Fecha de Inicio" required type="date" value={formInicio} onChange={(e) => { setFormInicio(e.target.value); if (errors.inicio) setErrors((p) => { const n = { ...p }; delete n.inicio; return n; }); }} error={errors.inicio} />
           <Input label="Fecha de Fin" required type="date" value={formFin} onChange={(e) => { setFormFin(e.target.value); if (errors.fin) setErrors((p) => { const n = { ...p }; delete n.fin; return n; }); }} error={errors.fin} />
         </div>

@@ -14,7 +14,7 @@ import { queryKeys } from '@/api/queryKeys';
 import * as settingsApi from '@/api/settingsApi';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSchoolContext } from '@/context/SchoolContext';
-import { FieldLimits, validateEmail, validatePassword } from '@/lib/validation/fields';
+import { FieldLimits, assignError, validateEmail, validateField, validatePassword } from '@/lib/validation/fields';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
 /** Roles que pueden iniciar sesión en el portal staff (MVP). */
@@ -141,7 +141,7 @@ export default function UsuariosTab() {
   const handleSave = async () => {
     if (saving) return;
     const errs: Record<string, string> = {};
-    if (!formNombre.trim()) errs.nombre = 'Ingresa el nombre completo';
+    assignError(errs, 'nombre', validateField('person.fullName', formNombre, { required: true }));
     const emailErr = validateEmail(formEmail, true);
     if (emailErr) errs.email = emailErr;
     if (!formRolId) errs.rol = 'Selecciona un rol';
@@ -346,8 +346,8 @@ export default function UsuariosTab() {
         }
       >
         <div className="space-y-4">
-          <Input label="Nombre Completo" required maxLength={FieldLimits.name} value={formNombre} onChange={(e) => { setFormNombre(e.target.value); if (formErrors.nombre) setFormErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={formErrors.nombre} placeholder="Ej. Ana García López" />
-          <Input label="Correo Electrónico" required type="email" maxLength={FieldLimits.email} value={formEmail} onChange={(e) => { setFormEmail(e.target.value); if (formErrors.email) setFormErrors((p) => { const n = { ...p }; delete n.email; return n; }); }} error={formErrors.email} placeholder="usuario@colegio.edu.mx" />
+          <Input label="Nombre Completo" required autoComplete="name" maxLength={FieldLimits.fullName} value={formNombre} onChange={(e) => { setFormNombre(e.target.value); if (formErrors.nombre) setFormErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={formErrors.nombre} placeholder="Ej. Ana García López" />
+          <Input label="Correo Electrónico" required type="email" autoComplete="email" maxLength={FieldLimits.email} value={formEmail} onChange={(e) => { setFormEmail(e.target.value); if (formErrors.email) setFormErrors((p) => { const n = { ...p }; delete n.email; return n; }); }} error={formErrors.email} placeholder="usuario@colegio.edu.mx" />
           <Select
             label="Rol"
             required
@@ -362,6 +362,7 @@ export default function UsuariosTab() {
               label="Contraseña Temporal"
               required
               type="password"
+              autoComplete="new-password"
               maxLength={FieldLimits.password}
               value={formPassword}
               onChange={(e) => { setFormPassword(e.target.value); if (formErrors.password) setFormErrors((p) => { const n = { ...p }; delete n.password; return n; }); }}

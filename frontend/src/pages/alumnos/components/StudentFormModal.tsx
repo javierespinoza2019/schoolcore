@@ -604,6 +604,7 @@ export default function StudentFormModal({
             <div className="sm:col-span-2">
               <Input
                 label="Dirección"
+                autoComplete="street-address"
                 maxLength={FieldLimits.address}
                 value={form.address}
                 onChange={(e) => handleChange('address', e.target.value)}

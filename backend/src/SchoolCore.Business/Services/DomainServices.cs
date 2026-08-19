@@ -535,7 +535,13 @@ public sealed class FinanceService : IFinanceService
     public Task DeleteExpenseAsync(Guid id, CancellationToken ct = default)
     { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.SoftDeleteExpenseAsync(t, id, u, ct)); }
     public Task<CashSessionDto> OpenCashSessionAsync(OpenCashSessionRequest request, CancellationToken ct = default)
-    { var (t, u) = Ctx(); return SqlExec.RunAsync(() => _repo.OpenCashSessionAsync(t, Guid.NewGuid(), u, request, u, ct)); }
+    {
+        var (t, u) = Ctx();
+        FieldValidator.ThrowIfInvalid(
+            request.OpeningAmount < 0 ? "El monto inicial no puede ser negativo." : null,
+            FieldValidator.TextFree(request.Notes, FieldStandards.CashNotesMax, "Notas"));
+        return SqlExec.RunAsync(() => _repo.OpenCashSessionAsync(t, Guid.NewGuid(), u, request, u, ct));
+    }
     public async Task<CashSessionDto> GetCashSessionAsync(Guid id, CancellationToken ct = default)
     { var (t, _) = Ctx(); return await _repo.GetCashSessionAsync(t, id, ct) ?? throw AppException.NotFound("Cash session not found."); }
     public Task<CashSessionDto?> GetOpenCashSessionAsync(Guid branchId, string? shift, CancellationToken ct = default)

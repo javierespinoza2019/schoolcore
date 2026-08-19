@@ -20,6 +20,7 @@ import { isGuid } from '@/api/helpers';
 import { friendlyApiError } from '@/lib/interaction/messages';
 import { newPaymentIdempotencyKey } from '@/lib/finance/idempotency';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
+import { FieldLimits } from '@/lib/validation/fields';
 
 interface RegistrarPagoModalProps {
   open: boolean;
@@ -243,6 +244,7 @@ export default function RegistrarPagoModal({
 
         <Input
           label="Referencia (opcional)"
+          maxLength={FieldLimits.reference}
           value={reference}
           onChange={(e) => setReference(e.target.value)}
         />

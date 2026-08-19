@@ -157,13 +157,14 @@ public sealed class OrganizationService : IOrganizationService
     public Task<SchoolCycleDto> CreateSchoolCycleAsync(SchoolCycleUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.Name)) throw AppException.BadRequest("Name is required.");
+        ValidateSchoolCycle(request);
         return ExecAsync(() => _repo.CreateSchoolCycleAsync(tenantId, Guid.NewGuid(), request, userId, ct));
     }
 
     public Task<SchoolCycleDto> UpdateSchoolCycleAsync(Guid id, SchoolCycleUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
+        ValidateSchoolCycle(request);
         return ExecAsync(() => _repo.UpdateSchoolCycleAsync(tenantId, id, request, userId, ct));
     }
 
@@ -186,7 +187,7 @@ public sealed class OrganizationService : IOrganizationService
             FieldValidator.TextFree(request.DisplayName, FieldStandards.InstitutionDisplayNameMax, "Nombre", required: true, minLen: 2),
             FieldValidator.TextFree(request.LegalName, FieldStandards.LegalNameMax, "Razón social"),
             FieldValidator.Code(request.TaxId, FieldStandards.TaxIdMax, "RFC"),
-            FieldValidator.TextFree(request.Website, FieldStandards.WebsiteMax, "Sitio web"),
+            FieldValidator.Website(request.Website),
             FieldValidator.Phone(request.Phone),
             FieldValidator.Email(request.Email),
             FieldValidator.TextFree(request.Address, FieldStandards.AddressMax, "Dirección"));
@@ -219,13 +220,14 @@ public sealed class OrganizationService : IOrganizationService
     public Task<EducationLevelDto> CreateEducationLevelAsync(EducationLevelUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.Name) || string.IsNullOrWhiteSpace(request.Code)) throw AppException.BadRequest("Name and Code are required.");
+        ValidateEducationLevel(request);
         return ExecAsync(() => _repo.CreateEducationLevelAsync(tenantId, Guid.NewGuid(), request, userId, ct));
     }
 
     public Task<EducationLevelDto> UpdateEducationLevelAsync(Guid id, EducationLevelUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
+        ValidateEducationLevel(request);
         return ExecAsync(() => _repo.UpdateEducationLevelAsync(tenantId, id, request, userId, ct));
     }
 
@@ -251,13 +253,14 @@ public sealed class OrganizationService : IOrganizationService
     public Task<PaymentMethodDto> CreatePaymentMethodAsync(PaymentMethodUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.Name)) throw AppException.BadRequest("Name is required.");
+        ValidatePaymentMethod(request);
         return ExecAsync(() => _repo.CreatePaymentMethodAsync(tenantId, Guid.NewGuid(), request, userId, ct));
     }
 
     public Task<PaymentMethodDto> UpdatePaymentMethodAsync(Guid id, PaymentMethodUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
+        ValidatePaymentMethod(request);
         return ExecAsync(() => _repo.UpdatePaymentMethodAsync(tenantId, id, request, userId, ct));
     }
 
@@ -283,13 +286,14 @@ public sealed class OrganizationService : IOrganizationService
     public Task<PaymentConceptDto> CreatePaymentConceptAsync(PaymentConceptUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.Name)) throw AppException.BadRequest("Name is required.");
+        ValidatePaymentConcept(request);
         return ExecAsync(() => _repo.CreatePaymentConceptAsync(tenantId, Guid.NewGuid(), request, userId, ct));
     }
 
     public Task<PaymentConceptDto> UpdatePaymentConceptAsync(Guid id, PaymentConceptUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
+        ValidatePaymentConcept(request);
         return ExecAsync(() => _repo.UpdatePaymentConceptAsync(tenantId, id, request, userId, ct));
     }
 
@@ -339,6 +343,10 @@ public sealed class OrganizationService : IOrganizationService
     public async Task<StaffUserDto> UpdateStaffAsync(Guid id, UpdateStaffUserRequest request, CancellationToken ct = default)
     {
         var (tenantId, userId) = Ctx();
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.Email(request.Email, required: true),
+            FieldValidator.PersonName(request.FirstName, "El nombre"),
+            FieldValidator.PersonName(request.LastName, "Los apellidos"));
         await ExecAsync(() => _repo.UpdateStaffAsync(tenantId, id, request, userId, ct));
         if (request.RoleCodes is not null)
             await ExecAsync(() => _repo.SetRolesAsync(tenantId, id, request.RoleCodes, ct));
@@ -374,7 +382,9 @@ public sealed class OrganizationService : IOrganizationService
     public Task<EmailTemplateDto> UpsertEmailTemplateAsync(EmailTemplateUpsertRequest request, CancellationToken ct = default)
     {
         var (tenantId, _) = Ctx();
-        if (string.IsNullOrWhiteSpace(request.TemplateKey)) throw AppException.BadRequest("TemplateKey is required.");
+        FieldValidator.ThrowIfInvalid(
+            string.IsNullOrWhiteSpace(request.TemplateKey) ? "TemplateKey is required." : null,
+            FieldValidator.TextFree(request.Subject, FieldStandards.EmailSubjectMax, "Asunto", required: true, minLen: 1));
         return ExecAsync(() => _repo.UpsertEmailTemplateAsync(tenantId, Guid.NewGuid(), request, ct));
     }
 
@@ -443,6 +453,34 @@ public sealed class OrganizationService : IOrganizationService
             .ToList();
     }
 
+    private static void ValidateSchoolCycle(SchoolCycleUpsertRequest request)
+    {
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.Name, FieldStandards.CycleNameMax, "Nombre del ciclo", required: true, minLen: 2));
+    }
+
+    private static void ValidateEducationLevel(EducationLevelUpsertRequest request)
+    {
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.Name, FieldStandards.LevelNameMax, "Nombre del nivel", required: true, minLen: 1),
+            FieldValidator.Code(request.Code, 50, "Código", required: true));
+    }
+
+    private static void ValidatePaymentMethod(PaymentMethodUpsertRequest request)
+    {
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.Name, FieldStandards.PaymentMethodNameMax, "Método de pago", required: true, minLen: 1),
+            FieldValidator.TextFree(request.Info, FieldStandards.PaymentMethodInfoMax, "Información", required: true, minLen: 1));
+    }
+
+    private static void ValidatePaymentConcept(PaymentConceptUpsertRequest request)
+    {
+        FieldValidator.ThrowIfInvalid(
+            FieldValidator.TextFree(request.Name, FieldStandards.PaymentConceptNameMax, "Concepto", required: true, minLen: 1));
+        if (!request.DifferentiatedByLevel)
+            FieldValidator.ThrowIfInvalid(FieldValidator.PositiveAmount(request.DefaultAmount, "Monto"));
+    }
+
     private static void ValidateBranch(BranchUpsertRequest request)
     {
         FieldValidator.ThrowIfInvalid(
@@ -454,7 +492,7 @@ public sealed class OrganizationService : IOrganizationService
             FieldValidator.PostalCodeMx(request.PostalCode),
             FieldValidator.Phone(request.Phone),
             FieldValidator.Email(request.Email),
-            FieldValidator.TextFree(request.DirectorName, 200, "Director"),
+            FieldValidator.PersonName(request.DirectorName, "El nombre del director", required: false, maxLen: FieldStandards.DirectorNameMax),
             FieldValidator.Email(request.DirectorEmail),
             FieldValidator.Phone(request.DirectorPhone, label: "Teléfono del director"));
 

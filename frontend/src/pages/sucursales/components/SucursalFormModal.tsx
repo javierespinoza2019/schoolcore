@@ -20,6 +20,7 @@ import {
   validatePostalCodeMx,
   validatePositiveNumber,
   validateTextFree,
+  validateField,
 } from '@/lib/validation/fields';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
 
@@ -202,7 +203,7 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
     assignError(newErrors, 'telefono', validatePhone(form.telefono, false));
     assignError(newErrors, 'email', validateEmail(form.email, false));
 
-    assignError(newErrors, 'director', validateTextFree(form.director, FieldLimits.directorName, 'El nombre del director'));
+    assignError(newErrors, 'director', validateField('org.directorName', form.director, { required: false }));
     assignError(newErrors, 'directorEmail', validateEmail(form.directorEmail, false));
     assignError(newErrors, 'directorTelefono', validatePhone(form.directorTelefono, false, 'El teléfono del director'));
     assignError(newErrors, 'capacidadTotal', validatePositiveNumber(form.capacidadTotal, 'La capacidad'));
@@ -338,17 +339,17 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="sm:col-span-2">
-              <Input label="Nombre del Campus" required maxLength={FieldLimits.branchName} value={form.nombre} onChange={(e) => handleChange('nombre', e.target.value)} error={errors.nombre} placeholder="Ej. Campus Norte" />
+              <Input label="Nombre del Campus" required autoComplete="organization" maxLength={FieldLimits.branchName} value={form.nombre} onChange={(e) => handleChange('nombre', e.target.value)} error={errors.nombre} placeholder="Ej. Campus Norte" />
             </div>
             <div className="sm:col-span-2">
-              <Input label="Dirección" maxLength={FieldLimits.addressBranch} value={form.direccion} onChange={(e) => handleChange('direccion', e.target.value)} error={errors.direccion} placeholder="Calle, Número, Colonia" />
+              <Input label="Dirección" autoComplete="street-address" maxLength={FieldLimits.addressBranch} value={form.direccion} onChange={(e) => handleChange('direccion', e.target.value)} error={errors.direccion} placeholder="Calle, Número, Colonia" />
             </div>
-            <Input label="Ciudad" maxLength={FieldLimits.city} value={form.ciudad} onChange={(e) => handleChange('ciudad', e.target.value)} error={errors.ciudad} placeholder="Ej. Ciudad de México" />
-            <Input label="Estado" maxLength={FieldLimits.state} value={form.estado} onChange={(e) => handleChange('estado', e.target.value)} error={errors.estado} placeholder="Ej. CDMX" />
-            <Input label="Código Postal" maxLength={5} value={form.codigoPostal} onChange={(e) => handleChange('codigoPostal', e.target.value)} error={errors.codigoPostal} placeholder="07300" />
+            <Input label="Ciudad" autoComplete="address-level2" maxLength={FieldLimits.city} value={form.ciudad} onChange={(e) => handleChange('ciudad', e.target.value)} error={errors.ciudad} placeholder="Ej. Ciudad de México" />
+            <Input label="Estado" autoComplete="address-level1" maxLength={FieldLimits.state} value={form.estado} onChange={(e) => handleChange('estado', e.target.value)} error={errors.estado} placeholder="Ej. CDMX" />
+            <Input label="Código Postal" autoComplete="postal-code" inputMode="numeric" maxLength={5} value={form.codigoPostal} onChange={(e) => handleChange('codigoPostal', e.target.value)} error={errors.codigoPostal} placeholder="07300" />
             <Input label="Superficie" value={form.superficie} onChange={(e) => handleChange('superficie', e.target.value)} error={errors.superficie} placeholder="Ej. 12,500 m²" />
-            <Input label="Teléfono" type="tel" maxLength={FieldLimits.phone} value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
-            <Input label="Email" type="email" maxLength={FieldLimits.email} value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="campus@SchoolCore.edu.mx" />
+            <Input label="Teléfono" type="tel" autoComplete="tel" maxLength={FieldLimits.phone} value={form.telefono} onChange={(e) => handleChange('telefono', e.target.value)} error={errors.telefono} placeholder="55-0000-0000" />
+            <Input label="Email" type="email" autoComplete="email" maxLength={FieldLimits.email} value={form.email} onChange={(e) => handleChange('email', e.target.value)} error={errors.email} placeholder="campus@SchoolCore.edu.mx" />
           </div>
         </div>
 
@@ -358,9 +359,9 @@ export default function SucursalFormModal({ open, onClose, onSave, sucursal, sav
             Director
           </h4>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Input label="Nombre del Director" maxLength={FieldLimits.directorName} value={form.director} onChange={(e) => handleChange('director', e.target.value)} error={errors.director} placeholder="Ej. Dr. Ricardo Álvarez" />
-            <Input label="Email del Director" type="email" maxLength={FieldLimits.email} value={form.directorEmail} onChange={(e) => handleChange('directorEmail', e.target.value)} error={errors.directorEmail} placeholder="director@SchoolCore.edu.mx" />
-            <Input label="Teléfono del Director" type="tel" maxLength={FieldLimits.phone} value={form.directorTelefono} onChange={(e) => handleChange('directorTelefono', e.target.value)} error={errors.directorTelefono} placeholder="55-0000-0000" />
+            <Input label="Nombre del Director" autoComplete="name" maxLength={FieldLimits.directorName} value={form.director} onChange={(e) => handleChange('director', e.target.value)} error={errors.director} placeholder="Ej. Dr. Ricardo Álvarez" />
+            <Input label="Email del Director" type="email" autoComplete="email" maxLength={FieldLimits.email} value={form.directorEmail} onChange={(e) => handleChange('directorEmail', e.target.value)} error={errors.directorEmail} placeholder="director@SchoolCore.edu.mx" />
+            <Input label="Teléfono del Director" type="tel" autoComplete="tel" maxLength={FieldLimits.phone} value={form.directorTelefono} onChange={(e) => handleChange('directorTelefono', e.target.value)} error={errors.directorTelefono} placeholder="55-0000-0000" />
           </div>
         </div>
 

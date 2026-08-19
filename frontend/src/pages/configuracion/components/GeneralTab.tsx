@@ -5,6 +5,7 @@ import Input from '@/components/base/Input';
 import Select from '@/components/base/Select';
 import { useToast } from '@/components/base/Toast';
 import TeacherAvatar from '@/components/feature/TeacherAvatar';
+import { FieldLimits } from '@/lib/validation/fields';
 import {
   detectDeviceTimeZone,
   labelForTimeZone,
@@ -23,6 +24,7 @@ interface Props {
   timeZoneId: string;
   logo: string;
   uploadingLogo?: boolean;
+  errors?: Record<string, string>;
   onNombreChange: (v: string) => void;
   onRfcChange: (v: string) => void;
   onTelefonoChange: (v: string) => void;
@@ -35,7 +37,9 @@ interface Props {
 }
 
 export default function GeneralTab({
-  saved, nombre, rfc, telefono, email, sitio, direccion, timeZoneId, logo, uploadingLogo = false,
+  saved, nombre, rfc, telefono, email, sitio, direccion, timeZoneId,   logo,
+  uploadingLogo = false,
+  errors = {},
   onNombreChange, onRfcChange, onTelefonoChange, onEmailChange, onSitioChange, onDireccionChange, onTimeZoneChange, onLogoFile, onSave,
 }: Props) {
   const { showToast } = useToast();
@@ -75,15 +79,62 @@ export default function GeneralTab({
       <Card className="lg:col-span-2" padding="lg">
         <h3 className="text-sm font-semibold text-foreground-900 mb-5">Información de la Institución</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input label="Nombre de la Institución" value={nombre} onChange={(e) => onNombreChange(e.target.value)} />
-          <Input label="RFC" value={rfc} onChange={(e) => onRfcChange(e.target.value)} />
-          <Input label="Teléfono" value={telefono} onChange={(e) => onTelefonoChange(e.target.value)} />
-          <Input label="Correo Electrónico" type="email" value={email} onChange={(e) => onEmailChange(e.target.value)} />
+          <Input
+            label="Nombre de la Institución"
+            required
+            autoComplete="organization"
+            maxLength={FieldLimits.institutionDisplayName}
+            value={nombre}
+            onChange={(e) => onNombreChange(e.target.value)}
+            error={errors.nombre}
+          />
+          <Input
+            label="RFC"
+            autoComplete="off"
+            maxLength={FieldLimits.taxId}
+            value={rfc}
+            onChange={(e) => onRfcChange(e.target.value)}
+            error={errors.rfc}
+          />
+          <Input
+            label="Teléfono"
+            type="tel"
+            autoComplete="tel"
+            maxLength={FieldLimits.phone}
+            value={telefono}
+            onChange={(e) => onTelefonoChange(e.target.value)}
+            error={errors.telefono}
+          />
+          <Input
+            label="Correo Electrónico"
+            type="email"
+            autoComplete="email"
+            maxLength={FieldLimits.email}
+            value={email}
+            onChange={(e) => onEmailChange(e.target.value)}
+            error={errors.email}
+          />
           <div className="sm:col-span-2">
-            <Input label="Sitio Web" value={sitio} onChange={(e) => onSitioChange(e.target.value)} />
+            <Input
+              label="Sitio Web"
+              type="url"
+              autoComplete="url"
+              maxLength={FieldLimits.website}
+              value={sitio}
+              onChange={(e) => onSitioChange(e.target.value)}
+              error={errors.sitio}
+              placeholder="https://www.colegio.edu.mx"
+            />
           </div>
           <div className="sm:col-span-2">
-            <Input label="Dirección Fiscal" value={direccion} onChange={(e) => onDireccionChange(e.target.value)} />
+            <Input
+              label="Dirección Fiscal"
+              autoComplete="street-address"
+              maxLength={FieldLimits.address}
+              value={direccion}
+              onChange={(e) => onDireccionChange(e.target.value)}
+              error={errors.direccion}
+            />
           </div>
         </div>
         <div className="flex items-center gap-2 mt-5 pt-4 border-t border-secondary-100">

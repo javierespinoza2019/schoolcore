@@ -13,6 +13,7 @@ import * as settingsApi from '@/api/settingsApi';
 import { isGuid } from '@/api/helpers';
 import { queryKeys } from '@/api/queryKeys';
 import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
+import { FieldLimits, assignError, validateField } from '@/lib/validation/fields';
 
 interface MetodoPago { id: string; nombre: string; activo: boolean; info: string; }
 
@@ -112,8 +113,8 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
 
   const handleSaveMetodo = async () => {
     const errs: Record<string, string> = {};
-    if (!metodoForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del método';
-    if (!metodoForm.info.trim()) errs.info = 'Ingresa la información del método';
+    assignError(errs, 'nombre', validateField('finance.paymentMethodName', metodoForm.nombre, { required: true }));
+    assignError(errs, 'info', validateField('finance.paymentMethodInfo', metodoForm.info, { required: true }));
     setErrors(errs);
     if (Object.keys(errs).length > 0) {
       afterValidationErrors(errs);
@@ -161,7 +162,7 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
 
   const handleSaveConcepto = async () => {
     const errs: Record<string, string> = {};
-    if (!conceptoForm.nombre.trim()) errs.nombre = 'Ingresa el nombre del concepto';
+    assignError(errs, 'nombre', validateField('finance.paymentConceptName', conceptoForm.nombre, { required: true }));
     if (!conceptoForm.tipo) errs.tipo = 'Selecciona el tipo';
 
     if (conceptoForm.diferenciadoPorNivel) {
@@ -405,8 +406,8 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
         footer={<div className="flex items-center gap-2"><Button variant="ghost" size="sm" onClick={() => { setModalMetodo(false); setErrors({}); }}>Cancelar</Button><Button variant="primary" size="sm" icon={saving ? undefined : 'ri-check-line'} onClick={handleSaveMetodo} disabled={saving}>{saving ? (<><span className="inline-block w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-1.5" />Guardando...</>) : editingMetodo ? 'Guardar Cambios' : 'Agregar'}</Button></div>}
       >
         <div className="space-y-4">
-          <Input label="Nombre" required value={metodoForm.nombre} onChange={(e) => { setMetodoForm((f) => ({ ...f, nombre: e.target.value })); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Pago con PayPal" />
-          <Input label="Información" required value={metodoForm.info} onChange={(e) => { setMetodoForm((f) => ({ ...f, info: e.target.value })); if (errors.info) setErrors((p) => { const n = { ...p }; delete n.info; return n; }); }} error={errors.info} placeholder="Ej. Cuenta PayPal: ejemplo@correo.com" />
+          <Input label="Nombre" required maxLength={FieldLimits.paymentMethodName} value={metodoForm.nombre} onChange={(e) => { setMetodoForm((f) => ({ ...f, nombre: e.target.value })); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Pago con PayPal" />
+          <Input label="Información" required maxLength={FieldLimits.paymentMethodInfo} value={metodoForm.info} onChange={(e) => { setMetodoForm((f) => ({ ...f, info: e.target.value })); if (errors.info) setErrors((p) => { const n = { ...p }; delete n.info; return n; }); }} error={errors.info} placeholder="Ej. Cuenta PayPal: ejemplo@correo.com" />
         </div>
       </Modal>
 
@@ -420,7 +421,7 @@ export default function PagosTab({ metodos, conceptos, onMetodosUpdate, onConcep
       >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Nombre del Concepto" required value={conceptoForm.nombre} onChange={(e) => { setConceptoForm((f) => ({ ...f, nombre: e.target.value })); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Colegiatura Mensual" />
+            <Input label="Nombre del Concepto" required maxLength={FieldLimits.paymentConceptName} value={conceptoForm.nombre} onChange={(e) => { setConceptoForm((f) => ({ ...f, nombre: e.target.value })); if (errors.nombre) setErrors((p) => { const n = { ...p }; delete n.nombre; return n; }); }} error={errors.nombre} placeholder="Ej. Colegiatura Mensual" />
             <Select
               label="Tipo" required
               options={[{ value: '', label: 'Seleccionar tipo...' }, { value: 'recurrente', label: 'Recurrente' }, { value: 'unico', label: 'Único' }, { value: 'mensual', label: 'Mensual' }, { value: 'anual', label: 'Anual' }]}

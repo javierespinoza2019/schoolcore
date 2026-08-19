@@ -74,6 +74,7 @@ export default function LoginPage() {
               type={showPassword ? 'text' : 'password'}
               autoComplete="current-password"
               required
+              maxLength={FieldLimits.password}
               icon="ri-lock-line"
               iconRight={showPassword ? 'ri-eye-off-line' : 'ri-eye-line'}
               iconRightAriaLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}

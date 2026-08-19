@@ -18,6 +18,7 @@ import * as settingsApi from '@/api/settingsApi';
 import { useToast } from '@/components/base/Toast';
 import { useSchoolContext } from '@/context/SchoolContext';
 import { queryKeys } from '@/api/queryKeys';
+import { FieldLimits } from '@/lib/validation/fields';
 import { isGuid } from '@/api/helpers';
 import { friendlyApiError } from '@/lib/interaction/messages';
 import { newPaymentIdempotencyKey } from '@/lib/finance/idempotency';
@@ -313,7 +314,7 @@ export default function RegistrarPagoModal({
 
         <Input
           label="Referencia (opcional)"
-          maxLength={100}
+          maxLength={FieldLimits.reference}
           value={reference}
           onChange={(e) => setReference(e.target.value)}
           placeholder="Ej. TRANS-89342"

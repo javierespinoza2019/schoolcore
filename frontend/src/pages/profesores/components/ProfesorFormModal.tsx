@@ -222,7 +222,7 @@ export default function ProfesorFormModal({
     else if (isNaN(Number(form.salarioMensual)) || Number(form.salarioMensual) <= 0) newErrors.salarioMensual = 'Ingresa un monto válido mayor a 0';
 
     if (!form.materias.trim()) newErrors.materias = 'Indica al menos una materia';
-    else assignError(newErrors, 'materias', validateTextFree(form.materias, 400, 'Materias'));
+    else assignError(newErrors, 'materias', validateTextFree(form.materias, FieldLimits.subjects, 'Materias'));
 
     if (!isGuid(form.sucursal)) newErrors.sucursal = 'Selecciona una sucursal válida';
 
@@ -406,6 +406,7 @@ export default function ProfesorFormModal({
           <Input
             label="Materias que imparte"
             required
+            maxLength={FieldLimits.subjects}
             value={form.materias}
             onChange={(e) => handleChange('materias', e.target.value)}
             error={errors.materias}

@@ -12,8 +12,40 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, icon, iconRight, iconRightAriaLabel, onIconClick, className = '', id, required, ...props }, ref) => {
+  (
+    {
+      label,
+      error,
+      hint,
+      icon,
+      iconRight,
+      iconRightAriaLabel,
+      onIconClick,
+      className = '',
+      id,
+      required,
+      type = 'text',
+      inputMode,
+      spellCheck,
+      autoComplete,
+      ...props
+    },
+    ref
+  ) => {
     const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+    const derivedInputMode =
+      inputMode ??
+      (type === 'email'
+        ? 'email'
+        : type === 'tel'
+          ? 'tel'
+          : type === 'url'
+            ? 'url'
+            : type === 'number'
+              ? 'decimal'
+              : undefined);
+    const derivedSpellCheck =
+      spellCheck ?? (type === 'email' || type === 'url' || type === 'password' ? false : undefined);
 
     return (
       <div className="w-full">
@@ -32,6 +64,10 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
           <input
             ref={ref}
             id={inputId}
+            type={type}
+            autoComplete={autoComplete}
+            inputMode={derivedInputMode}
+            spellCheck={derivedSpellCheck}
             aria-invalid={error ? true : undefined}
             aria-required={required || undefined}
             aria-describedby={

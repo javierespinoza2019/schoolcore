@@ -39,4 +39,12 @@ public static class FieldStandards
     public const int ReferenceMax = 100;
     public const int PasswordMin = 8;
     public const int PasswordMax = 128;
+    public const int DirectorNameMax = 200;
+    public const int CycleNameMax = 200;
+    public const int EmailSubjectMax = 300;
+    public const int PaymentMethodNameMax = 150;
+    public const int PaymentMethodInfoMax = 500;
+    public const int PaymentConceptNameMax = 200;
+    public const int CashNotesMax = 500;
+    public const int FullNameMax = 201;
 }

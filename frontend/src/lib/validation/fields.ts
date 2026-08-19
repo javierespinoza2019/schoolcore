@@ -33,7 +33,16 @@ export const FieldLimits = {
   city: FIELD_STANDARDS['org.city'].maxLen,
   state: FIELD_STANDARDS['org.state'].maxLen,
   postalCode: FIELD_STANDARDS['org.postalCode'].maxLen,
-  directorName: 200,
+  directorName: FIELD_STANDARDS['org.directorName'].maxLen,
+  fullName: FIELD_STANDARDS['person.fullName'].maxLen,
+  cycleName: FIELD_STANDARDS['org.cycleName'].maxLen,
+  emailSubject: FIELD_STANDARDS['org.emailSubject'].maxLen,
+  paymentMethodName: FIELD_STANDARDS['finance.paymentMethodName'].maxLen,
+  paymentMethodInfo: FIELD_STANDARDS['finance.paymentMethodInfo'].maxLen,
+  paymentConceptName: FIELD_STANDARDS['finance.paymentConceptName'].maxLen,
+  cashNotes: FIELD_STANDARDS['finance.cashNotes'].maxLen,
+  subjects: FIELD_STANDARDS['academic.subjects'].maxLen,
+  levelName: FIELD_STANDARDS['academic.levelName'].maxLen,
   branchName: FIELD_STANDARDS['org.branchName'].maxLen,
   branchCode: FIELD_STANDARDS['org.branchCode'].maxLen,
   taxId: FIELD_STANDARDS['org.taxId'].maxLen,
@@ -79,6 +88,18 @@ function charsetError(std: FieldStandard, value: string): string | null {
     case 'code':
       if (!CODE_RE.test(v)) return `${std.label}: use letras, números, _ o -`;
       return null;
+    case 'url': {
+      if (!TEXT_FREE_RE.test(v)) return `${std.label}: no se permiten caracteres de control ni < >`;
+      try {
+        const parsed = new URL(v);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return 'Usa una URL válida (https://…)';
+        }
+      } catch {
+        return 'Usa una URL válida (https://…)';
+      }
+      return null;
+    }
     case 'textFree':
       if (!TEXT_FREE_RE.test(v)) return `${std.label}: no se permiten caracteres de control ni < >`;
       return null;

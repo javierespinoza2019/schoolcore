@@ -9,6 +9,7 @@ import { useApiResource } from '@/hooks/useApiResource';
 import { queryKeys } from '@/api/queryKeys';
 import * as settingsApi from '@/api/settingsApi';
 import type { EmailTemplateSummary } from '@/api/settingsApi';
+import { FieldLimits, validateField } from '@/lib/validation/fields';
 import { useQueryClient } from '@tanstack/react-query';
 
 /** Tab mínimo de plantillas email (layout fijo + override tenant). */
@@ -17,6 +18,7 @@ export default function EmailTemplatesTab() {
   const queryClient = useQueryClient();
   const [edit, setEdit] = useState<EmailTemplateSummary | null>(null);
   const [subject, setSubject] = useState('');
+  const [subjectError, setSubjectError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const templatesQuery = useApiResource({
@@ -28,11 +30,17 @@ export default function EmailTemplatesTab() {
   const templates = templatesQuery.data ?? [];
 
   useEffect(() => {
-    if (edit) setSubject(edit.subject);
+    if (edit) {
+      setSubject(edit.subject);
+      setSubjectError(null);
+    }
   }, [edit]);
 
   const handleSave = async () => {
     if (!edit) return;
+    const err = validateField('org.emailSubject', subject, { required: true });
+    setSubjectError(err);
+    if (err) return;
     setSaving(true);
     const res = await settingsApi.updateEmailTemplate(edit.id, {
       key: edit.key,
@@ -91,7 +99,17 @@ export default function EmailTemplatesTab() {
       <Modal open={!!edit} onClose={() => setEdit(null)} title="Editar plantilla" size="md">
         {edit && (
           <div className="space-y-4">
-            <Input label="Asunto" value={subject} onChange={(e) => setSubject(e.target.value)} />
+            <Input
+              label="Asunto"
+              required
+              maxLength={FieldLimits.emailSubject}
+              value={subject}
+              onChange={(e) => {
+                setSubject(e.target.value);
+                if (subjectError) setSubjectError(null);
+              }}
+              error={subjectError || undefined}
+            />
             <p className="text-2xs text-foreground-400">
               TODO: conectar colores/logo/bodyText cuando el endpoint de override esté listo.
             </p>

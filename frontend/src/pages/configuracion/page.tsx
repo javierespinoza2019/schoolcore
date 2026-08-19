@@ -17,6 +17,8 @@ import * as cyclesApi from '@/api/cyclesApi';
 import type { ConceptoPago } from '@/mocks/configuracion';
 import { useAuth } from '@/auth/AuthContext';
 import { isGuid } from '@/api/helpers';
+import { afterValidationErrors } from '@/lib/ui/scrollToFirstError';
+import { assignError, validateField } from '@/lib/validation/fields';
 
 export default function Configuracion() {
   const [saved, setSaved] = useState(false);
@@ -29,6 +31,7 @@ export default function Configuracion() {
   const [timeZoneId, setTimeZoneId] = useState('America/Mexico_City');
   const [logo, setLogo] = useState('');
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [generalErrors, setGeneralErrors] = useState<Record<string, string>>({});
 
   const [ciclos, setCiclos] = useState<
     { id: string; nombre: string; inicio: string; fin: string; activo: boolean }[]
@@ -117,13 +120,30 @@ export default function Configuracion() {
   }, [notifQ.data]);
 
   const handleSaveGeneral = async () => {
+    const sitioNorm =
+      sitio.trim() && !/^https?:\/\//i.test(sitio.trim()) ? `https://${sitio.trim()}` : sitio.trim();
+    if (sitioNorm !== sitio) setSitio(sitioNorm);
+
+    const errs: Record<string, string> = {};
+    assignError(errs, 'nombre', validateField('org.institutionDisplayName', nombre, { required: true }));
+    assignError(errs, 'rfc', validateField('org.taxId', rfc, { required: false }));
+    assignError(errs, 'telefono', validateField('person.phone', telefono, { required: false }));
+    assignError(errs, 'email', validateField('person.email', email, { required: false }));
+    assignError(errs, 'sitio', validateField('org.website', sitioNorm, { required: false }));
+    assignError(errs, 'direccion', validateField('person.address', direccion, { required: false }));
+    setGeneralErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      afterValidationErrors(errs);
+      return;
+    }
+
     const res = await settingsApi.updateTenantSettings({
       nombre: nombre || undefined,
       nombreCompleto: nombre,
       rfc,
       telefono,
       email,
-      sitioWeb: sitio,
+      sitioWeb: sitioNorm,
       direccion,
       timeZoneId,
       logo,
@@ -178,12 +198,31 @@ export default function Configuracion() {
           timeZoneId={timeZoneId}
           logo={logo}
           uploadingLogo={uploadingLogo}
-          onNombreChange={setNombre}
-          onRfcChange={setRfc}
-          onTelefonoChange={setTelefono}
-          onEmailChange={setEmail}
-          onSitioChange={setSitio}
-          onDireccionChange={setDireccion}
+          errors={generalErrors}
+          onNombreChange={(v) => {
+            setNombre(v);
+            if (generalErrors.nombre) setGeneralErrors((p) => { const n = { ...p }; delete n.nombre; return n; });
+          }}
+          onRfcChange={(v) => {
+            setRfc(v);
+            if (generalErrors.rfc) setGeneralErrors((p) => { const n = { ...p }; delete n.rfc; return n; });
+          }}
+          onTelefonoChange={(v) => {
+            setTelefono(v);
+            if (generalErrors.telefono) setGeneralErrors((p) => { const n = { ...p }; delete n.telefono; return n; });
+          }}
+          onEmailChange={(v) => {
+            setEmail(v);
+            if (generalErrors.email) setGeneralErrors((p) => { const n = { ...p }; delete n.email; return n; });
+          }}
+          onSitioChange={(v) => {
+            setSitio(v);
+            if (generalErrors.sitio) setGeneralErrors((p) => { const n = { ...p }; delete n.sitio; return n; });
+          }}
+          onDireccionChange={(v) => {
+            setDireccion(v);
+            if (generalErrors.direccion) setGeneralErrors((p) => { const n = { ...p }; delete n.direccion; return n; });
+          }}
           onTimeZoneChange={setTimeZoneId}
           onLogoFile={(f) => void handleLogoFile(f)}
           onSave={handleSaveGeneral}
