@@ -39,6 +39,10 @@ function formatMoney(n: number) {
   }).format(n);
 }
 
+function isCashMethod(name: string | undefined): boolean {
+  return (name ?? '').toLowerCase().includes('efectivo');
+}
+
 export default function RegistrarPagoModal({
   open,
   onClose,
@@ -51,9 +55,10 @@ export default function RegistrarPagoModal({
   const [chargeId, setChargeId] = useState('');
   const [paymentMethodId, setPaymentMethodId] = useState('');
   const [reference, setReference] = useState('');
+  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  /** Stable for this charge selection — not regenerated on each click (BR-53). */
   const [idempotencyKey, setIdempotencyKey] = useState('');
 
   const studentsQ = useQuery({
@@ -95,12 +100,26 @@ export default function RegistrarPagoModal({
   const charges = chargesQ.data?.data ?? [];
   const openSession = openSessionQ.data?.data ?? null;
 
+  const selectedCharge: ChargeSummary | undefined = useMemo(
+    () => charges.find((c) => c.id === chargeId),
+    [charges, chargeId]
+  );
+
+  const selectedStudent = students.find((s) => s.id === studentId);
+  const selectedMethod = methods.find((m) => m.id === paymentMethodId);
+  const needsReference = Boolean(paymentMethodId) && !isCashMethod(selectedMethod?.nombre);
+  const conceptLabel = selectedCharge?.conceptName ?? '';
+  const montoDisplay = selectedCharge ? String(selectedCharge.netAmount) : '';
+  const studentLocked = Boolean(preseleccionarAlumnoId && isGuid(preseleccionarAlumnoId));
+
   useEffect(() => {
     if (!open) return;
     setStudentId(preseleccionarAlumnoId && isGuid(preseleccionarAlumnoId) ? preseleccionarAlumnoId : '');
     setChargeId('');
     setPaymentMethodId('');
     setReference('');
+    setPaymentDate(new Date().toISOString().split('T')[0]);
+    setNotes('');
     setErrors({});
     setSaving(false);
     setIdempotencyKey('');
@@ -119,17 +138,12 @@ export default function RegistrarPagoModal({
   }, [open, chargeId]);
 
   useEffect(() => {
-    if (!paymentMethodId && methods.length > 0) {
-      setPaymentMethodId(methods[0].id);
-    }
-  }, [methods, paymentMethodId]);
+    if (!needsReference) setReference('');
+  }, [needsReference]);
 
-  const selectedCharge: ChargeSummary | undefined = useMemo(
-    () => charges.find((c) => c.id === chargeId),
-    [charges, chargeId]
-  );
-
-  const selectedStudent = students.find((s) => s.id === studentId);
+  const modalSubtitle = selectedStudent
+    ? `Alumno: ${selectedStudent.fullName} · ${selectedStudent.enrollment || '—'}`
+    : 'Selecciona alumno y concepto de pago';
 
   const handleClose = () => {
     onClose();
@@ -140,8 +154,12 @@ export default function RegistrarPagoModal({
     const errs: Record<string, string> = {};
     if (!isGuid(branchId)) errs.branch = 'Selecciona una sucursal en el contexto';
     if (!isGuid(studentId)) errs.studentId = 'Selecciona un alumno';
-    if (!isGuid(chargeId)) errs.chargeId = 'Selecciona un cargo pendiente';
+    if (!isGuid(chargeId)) errs.chargeId = 'Selecciona un concepto de pago';
     if (!isGuid(paymentMethodId)) errs.paymentMethodId = 'Selecciona un método de pago';
+    if (needsReference && !reference.trim()) {
+      errs.reference = 'La referencia es obligatoria para este método de pago';
+    }
+    if (!paymentDate.trim()) errs.paymentDate = 'La fecha es obligatoria';
     if (!openSession?.id) {
       errs.session = 'Abre un corte de caja antes de cobrar (obligatorio para cualquier método)';
     }
@@ -166,7 +184,7 @@ export default function RegistrarPagoModal({
       reference: reference.trim() || undefined,
       idempotencyKey: idempotencyKey || newPaymentIdempotencyKey(chargeId),
       concept: selectedCharge.conceptName,
-      notes: undefined,
+      notes: notes.trim() || undefined,
     });
     setSaving(false);
 
@@ -185,10 +203,10 @@ export default function RegistrarPagoModal({
       open={open}
       onClose={handleClose}
       title="Registrar Pago"
-      subtitle="Cobra un cargo pendiente (Caja v1 — sin parciales)"
-      size="sm"
+      subtitle={modalSubtitle}
+      size="lg"
       footer={
-        <div className="flex items-center gap-2">
+        <>
           <Button variant="ghost" size="sm" onClick={handleClose} disabled={saving}>
             Cancelar
           </Button>
@@ -202,123 +220,200 @@ export default function RegistrarPagoModal({
           >
             Registrar Pago
           </Button>
-        </div>
+        </>
       }
     >
-      <div className="space-y-4">
+      <div className="space-y-5">
         {!isGuid(branchId) && (
           <div className="text-2xs text-red-700 bg-red-50 border border-red-100 rounded-md px-3 py-2">
             Selecciona una sucursal válida en el encabezado.
           </div>
         )}
 
-        <div
-          className={`text-2xs rounded-md px-3 py-2 border ${
-            openSession
-              ? 'text-emerald-800 bg-emerald-50 border-emerald-100'
-              : 'text-amber-800 bg-amber-50 border-amber-100'
-          }`}
-          aria-invalid={errors.session ? true : undefined}
-        >
-          {openSessionQ.isLoading
-            ? 'Verificando corte de caja...'
-            : openSession
-              ? `Corte abierto · turno ${openSession.turno} · ingresos $${openSession.totalIngresos.toLocaleString('es-MX')}`
-              : 'No hay corte abierto. Ábrelo en Caja antes de cobrar (obligatorio para cualquier método).'}
-          {errors.session && <p className="mt-1 font-medium">{errors.session}</p>}
+        {!openSession && (
+          <div
+            className="text-2xs rounded-md px-3 py-2 border text-amber-800 bg-amber-50 border-amber-100"
+            aria-invalid={errors.session ? true : undefined}
+          >
+            {openSessionQ.isLoading
+              ? 'Verificando corte de caja...'
+              : 'No hay corte abierto. Ábrelo en Caja antes de registrar el pago.'}
+            {errors.session && <p className="mt-1 font-medium">{errors.session}</p>}
+          </div>
+        )}
+
+        {!studentLocked && (
+          <Select
+            label="Alumno"
+            required
+            options={[
+              { value: '', label: studentsQ.isLoading ? 'Cargando alumnos...' : 'Seleccionar alumno...' },
+              ...students.map((s) => ({
+                value: s.id,
+                label: `${s.fullName} — ${s.enrollment || s.id.slice(0, 8)}`,
+              })),
+            ]}
+            value={studentId}
+            onChange={(e) => {
+              setStudentId(e.target.value);
+              if (errors.studentId) {
+                setErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.studentId;
+                  return next;
+                });
+              }
+            }}
+            error={errors.studentId}
+          />
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select
+            label="Concepto de pago"
+            required
+            options={[
+              {
+                value: '',
+                label: !studentId
+                  ? 'Primero selecciona alumno...'
+                  : chargesQ.isLoading
+                    ? 'Cargando...'
+                    : charges.length === 0
+                      ? 'Sin conceptos pendientes'
+                      : 'Selecciona concepto...',
+              },
+              ...charges.map((c) => ({ value: c.id, label: c.conceptName })),
+            ]}
+            value={chargeId}
+            onChange={(e) => {
+              setChargeId(e.target.value);
+              if (errors.chargeId) {
+                setErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.chargeId;
+                  return next;
+                });
+              }
+            }}
+            placeholder="Selecciona concepto..."
+            error={errors.chargeId}
+            disabled={!studentId}
+          />
+          <Input
+            label="Monto ($ MXN)"
+            type="number"
+            required
+            value={montoDisplay}
+            readOnly
+            placeholder="0.00"
+            icon="ri-money-cny-circle-line"
+            hint={selectedCharge ? 'Monto del cargo pendiente (pago completo)' : undefined}
+          />
         </div>
 
-        {!CASH_V1_PARTIAL_PAYMENTS && (
-          <div className="text-2xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
-            El monto se toma del cargo (pago completo obligatorio).
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Select
+            label="Método de pago"
+            required
+            options={[
+              { value: '', label: methods.length ? 'Selecciona método...' : 'Sin métodos configurados' },
+              ...methods.filter((m) => m.activo !== false).map((m) => ({ value: m.id, label: m.nombre })),
+            ]}
+            value={paymentMethodId}
+            onChange={(e) => {
+              setPaymentMethodId(e.target.value);
+              if (errors.paymentMethodId) {
+                setErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.paymentMethodId;
+                  return next;
+                });
+              }
+            }}
+            placeholder="Selecciona método..."
+            error={errors.paymentMethodId}
+          />
+          <Input
+            label="Referencia"
+            maxLength={FieldLimits.reference}
+            value={reference}
+            onChange={(e) => {
+              setReference(e.target.value);
+              if (errors.reference) {
+                setErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.reference;
+                  return next;
+                });
+              }
+            }}
+            placeholder={
+              needsReference
+                ? 'Número de transacción, terminal, folio...'
+                : 'No aplica para efectivo'
+            }
+            disabled={!needsReference}
+            required={needsReference}
+            icon="ri-barcode-line"
+            error={errors.reference}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Input
+            label="Fecha de pago"
+            type="date"
+            required
+            value={paymentDate}
+            onChange={(e) => {
+              setPaymentDate(e.target.value);
+              if (errors.paymentDate) {
+                setErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.paymentDate;
+                  return next;
+                });
+              }
+            }}
+            error={errors.paymentDate}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="observaciones-pago-fin" className="block text-xs font-medium text-foreground-700 mb-1.5">
+            Observaciones
+          </label>
+          <textarea
+            id="observaciones-pago-fin"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notas adicionales sobre el pago..."
+            rows={3}
+            maxLength={FieldLimits.paymentNotes}
+            className="w-full rounded-md border border-secondary-200 bg-background-50 text-sm text-foreground-900 placeholder:text-foreground-300 px-3 py-2 transition-all duration-150 outline-none focus:border-primary-400 focus:ring-2 focus:ring-primary-100 resize-none"
+          />
+          <p className="mt-1 text-2xs text-foreground-400 text-right">
+            {notes.length}/{FieldLimits.paymentNotes}
+          </p>
+        </div>
+
+        <div className="rounded-lg bg-background-100 border border-background-200/70 p-3 space-y-1.5">
+          <p className="text-xs font-semibold text-foreground-700 flex items-center gap-1.5">
+            <i className="ri-file-list-3-line text-foreground-400" />
+            Resumen del pago
+          </p>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-foreground-500">Concepto:</span>
+            <span className="font-medium text-foreground-800">{conceptLabel || '—'}</span>
           </div>
-        )}
-
-        <Select
-          label="Alumno"
-          required
-          options={[
-            { value: '', label: studentsQ.isLoading ? 'Cargando alumnos...' : 'Seleccionar alumno...' },
-            ...students.map((s) => ({
-              value: s.id,
-              label: `${s.fullName} — ${s.enrollment || s.id.slice(0, 8)}`,
-            })),
-          ]}
-          value={studentId}
-          onChange={(e) => setStudentId(e.target.value)}
-          error={errors.studentId}
-        />
-
-        {selectedStudent && (
-          <div className="flex items-center gap-3 px-3 py-2 bg-secondary-50 rounded-md border border-secondary-100">
-            <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-600 flex items-center justify-center text-xs font-bold">
-              {(selectedStudent.firstName[0] || '?') + (selectedStudent.lastName[0] || '')}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-foreground-800 truncate">{selectedStudent.fullName}</p>
-              <p className="text-2xs text-foreground-500">
-                {selectedStudent.level} · {selectedStudent.grade} {selectedStudent.group}
-              </p>
-            </div>
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-foreground-500">Monto:</span>
+            <span className="font-medium text-foreground-800">
+              {selectedCharge ? formatMoney(selectedCharge.netAmount) : '—'}
+            </span>
           </div>
-        )}
-
-        <Select
-          label="Cargo pendiente"
-          required
-          options={[
-            {
-              value: '',
-              label: !studentId
-                ? 'Primero selecciona alumno...'
-                : chargesQ.isLoading
-                  ? 'Cargando cargos...'
-                  : charges.length === 0
-                    ? 'Sin cargos pendientes'
-                    : 'Seleccionar cargo...',
-            },
-            ...charges.map((c) => ({
-              value: c.id,
-              label: `${c.conceptName} · ${formatMoney(c.netAmount)} · vence ${c.dueDate || '—'}`,
-            })),
-          ]}
-          value={chargeId}
-          onChange={(e) => setChargeId(e.target.value)}
-          error={errors.chargeId}
-          disabled={!studentId}
-        />
-
-        {selectedCharge && (
-          <div className="rounded-md border border-primary-100 bg-primary-50/50 px-3 py-2 text-sm">
-            <div className="flex justify-between gap-2">
-              <span className="text-foreground-600">Monto a cobrar</span>
-              <span className="font-semibold text-foreground-900">
-                {formatMoney(selectedCharge.netAmount)}
-              </span>
-            </div>
-            <p className="text-2xs text-foreground-500 mt-1">{selectedCharge.conceptName}</p>
-          </div>
-        )}
-
-        <Select
-          label="Método de Pago"
-          required
-          options={[
-            { value: '', label: methods.length ? 'Seleccionar...' : 'Sin métodos configurados' },
-            ...methods.map((m) => ({ value: m.id, label: m.nombre })),
-          ]}
-          value={paymentMethodId}
-          onChange={(e) => setPaymentMethodId(e.target.value)}
-          error={errors.paymentMethodId}
-        />
-
-        <Input
-          label="Referencia (opcional)"
-          maxLength={FieldLimits.reference}
-          value={reference}
-          onChange={(e) => setReference(e.target.value)}
-          placeholder="Ej. TRANS-89342"
-        />
+        </div>
       </div>
     </Modal>
   );
